@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/* ─── Cassie-inspired Design System ───────────────────────────────────────── */
+
+@theme {
+  --color-brand: #5556fd;
+  --color-brand-light: #7b7cfe;
+  --color-brand-dark: #1e1a70;
+  --color-accent: #4bdedb;
+  --color-accent-light: #e0faf9;
+
+  --color-ui-01: #f9f9fd;
+  --color-ui-02: #e6e7ef;
+  --color-ui-03: #c0ccda;
+  --color-ui-04: #8392a5;
+
+  --color-text-01: #06072d;
+  --color-text-02: #373857;
+  --color-text-03: #575d78;
+  --color-text-04: #8e90a6;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: local('Inter');
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', 'Roboto', system-ui, -apple-system, sans-serif;
+  background: var(--color-ui-01);
+  color: var(--color-text-02);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Card hover effect like Cassie */
+.card-cassie {
+  background: white;
+  border: 1px solid var(--color-ui-02);
+  border-radius: 0;
+  transition: all 0.25s;
+}
+.card-cassie:hover {
+  box-shadow: 0 4px 12px 0 rgba(131, 146, 165, 0.15), 2px 2px 5px 0 rgba(131, 146, 165, 0.04);
+  border-color: #d9dfe7;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--color-ui-03); border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Custom select arrow removal */
+select.cassie-select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238392a5' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+}

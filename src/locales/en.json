@@ -1,0 +1,219 @@
+{
+  "app": {
+    "name": "EMSP Dashboard",
+    "subtitle": "Class Council",
+    "tagline": "EMSP Abidjan · FS MENUM"
+  },
+  "navigation": {
+    "dashboard": "Dashboard",
+    "students": "Students List",
+    "deliberation": "Deliberation & Minutes",
+    "admin": "Administration",
+    "history": "History",
+    "sessions": "Sessions",
+    "navigation": "Navigation"
+  },
+  "common": {
+    "loading": "Loading session...",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "search": "Search"
+  },
+  "auth": {
+    "login": {
+      "title": "Login",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Sign In",
+      "loading": "Signing In...",
+      "noAccount": "No account?",
+      "register": "Create Account",
+      "guest": "Continue as Guest",
+      "demo": "Demo",
+      "or": "or",
+      "quickAccess": "quick access",
+      "error": "Login error"
+    },
+    "register": {
+      "title": "Create Account",
+      "fullName": "Full Name",
+      "fullNamePlaceholder": "John Doe",
+      "email": "Email",
+      "emailPlaceholder": "you@example.com",
+      "password": "Password",
+      "passwordPlaceholder": "At least 6 characters",
+      "confirmPassword": "Confirm Password",
+      "confirmPasswordPlaceholder": "********",
+      "createAccount": "Create Account",
+      "creating": "Creating...",
+      "continueWithGoogle": "Continue with Google",
+      "continueWithMicrosoft": "Continue with Microsoft",
+      "haveAccount": "Already have an account?",
+      "signIn": "Sign In",
+      "error": "Error creating account"
+    },
+    "logout": "Logout"
+  },
+  "sessions": {
+    "title": "Your Sessions",
+    "create": "New Session",
+    "createModal": {
+      "title": "Create Session",
+      "name": "Session Name",
+      "description": "Description (optional)",
+      "placeholder": "Ex: Class Council L1 EMSP 2025-2026",
+      "create": "Create",
+      "cancel": "Cancel"
+    },
+    "share": {
+      "title": "Share Session",
+      "email": "User Email",
+      "role": "Role",
+      "roles": {
+        "admin": "Administrator",
+        "editor": "Editor",
+        "reader": "Reader"
+      },
+      "share": "Share",
+      "cancel": "Cancel"
+    },
+    "actions": {
+      "edit": "Edit",
+      "delete": "Delete",
+      "share": "Share",
+      "leave": "Leave"
+    },
+    "guest": {
+      "warning": "Guest Mode",
+      "message": "Your sessions and data are temporarily saved. Create an account to keep them permanently.",
+      "createAccount": "Create Account"
+    }
+  },
+  "upload": {
+    "title": "Import Data",
+    "subtitle": "Upload your Excel file to get started",
+    "dragDrop": "Drag and drop your file here or click to select",
+    "formats": "Accepted formats: .xlsx, .xls",
+    "upload": "Upload",
+    "processing": "Processing...",
+    "success": "File processed successfully!",
+    "error": "Error processing file"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "stats": {
+      "totalStudents": "Total Students",
+      "averageGrade": "Overall Average",
+      "passRate": "Pass Rate",
+      "classes": "Classes"
+    }
+  },
+  "students": {
+    "title": "Students List",
+    "search": "Search for a student...",
+    "columns": {
+      "rank": "Rank",
+      "name": "Name",
+      "matricule": "Matricule",
+      "average": "Average",
+      "status": "Status"
+    },
+    "detail": {
+      "title": "Student Details",
+      "grades": "Grades",
+      "semester": "Semester",
+      "annual": "Annual"
+    }
+  },
+  "deliberation": {
+    "title": "Deliberation & Minutes",
+    "generate": "Generate Minutes",
+    "download": "Download"
+  },
+  "admin": {
+    "title": "Administration",
+    "global": {
+      "title": "Application Administration",
+      "subtitle": "Manage global settings for the EMSP Dashboard application",
+      "logo": {
+        "title": "Application Logo",
+        "upload": "Upload Logo",
+        "remove": "Remove Logo",
+        "formats": "Accepted formats: PNG, JPG, JPEG, GIF, SVG. Maximum size: 2MB.",
+        "preview": "This logo will be displayed in the sidebar instead of the \"EMSP\" text",
+        "saving": "Saving...",
+        "saved": "Saved"
+      },
+      "save": "Save"
+    },
+    "session": {
+      "title": "Session Administration",
+      "settings": "Settings",
+      "export": "Export Data"
+    }
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "yes": "Yes",
+    "no": "No",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "close": "Close",
+    "open": "Open",
+    "select": "Select",
+    "selected": "Selected",
+    "all": "All",
+    "none": "None",
+    "search": "Search",
+    "filter": "Filter",
+    "sort": "Sort",
+    "export": "Export",
+    "import": "Import",
+    "download": "Download",
+    "upload": "Upload",
+    "file": "File",
+    "files": "Files"
+  },
+  "classes": {
+    "title": "Class Selection",
+    "all": "All Classes",
+    "select": "Select a class",
+    "niveau": "Level",
+    "filiere": "Field",
+    "semester": "Semester",
+    "annual": "Annual",
+    "s1": "Semester 1",
+    "s2": "Semester 2"
+  },
+  "grades": {
+    "title": "Grades",
+    "average": "Average",
+    "grade": "Grade",
+    "coefficient": "Coefficient",
+    "total": "Total",
+    "rank": "Rank",
+    "status": "Status",
+    "passed": "Passed",
+    "failed": "Failed",
+    "excellent": "Excellent",
+    "good": "Good",
+    "average": "Average",
+    "poor": "Poor"
+  },
+  "language": {
+    "french": "Français",
+    "english": "English",
+    "switch": "Switch Language"
+  }
+}

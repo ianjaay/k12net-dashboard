@@ -1,0 +1,219 @@
+{
+  "app": {
+    "name": "EMSP Dashboard",
+    "subtitle": "Conseil de Classe",
+    "tagline": "EMSP Abidjan · FS MENUM"
+  },
+  "navigation": {
+    "dashboard": "Tableau de bord",
+    "students": "Liste des Etudiants",
+    "deliberation": "Deliberation & PV",
+    "admin": "Administration",
+    "history": "Historique",
+    "sessions": "Sessions",
+    "navigation": "Navigation"
+  },
+  "common": {
+    "loading": "Chargement de la session...",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "add": "Ajouter",
+    "search": "Rechercher"
+  },
+  "auth": {
+    "login": {
+      "title": "Connexion",
+      "email": "Email",
+      "password": "Mot de passe",
+      "submit": "Se connecter",
+      "loading": "Connexion...",
+      "noAccount": "Pas de compte ?",
+      "register": "Créer un compte",
+      "guest": "Continuer en tant qu'invité",
+      "demo": "Démonstration",
+      "or": "ou",
+      "quickAccess": "accès rapide",
+      "error": "Erreur de connexion"
+    },
+    "register": {
+      "title": "Créer un compte",
+      "fullName": "Nom complet",
+      "fullNamePlaceholder": "Jean Dupont",
+      "email": "Email",
+      "emailPlaceholder": "vous@exemple.com",
+      "password": "Mot de passe",
+      "passwordPlaceholder": "Au moins 6 caractères",
+      "confirmPassword": "Confirmer le mot de passe",
+      "confirmPasswordPlaceholder": "********",
+      "createAccount": "Créer un compte",
+      "creating": "Création...",
+      "continueWithGoogle": "Continuer avec Google",
+      "continueWithMicrosoft": "Continuer avec Microsoft",
+      "haveAccount": "Déjà un compte ?",
+      "signIn": "Se connecter",
+      "error": "Erreur lors de la création du compte"
+    },
+    "logout": "Déconnexion"
+  },
+  "sessions": {
+    "title": "Vos Sessions",
+    "create": "Nouvelle Session",
+    "createModal": {
+      "title": "Créer une Session",
+      "name": "Nom de la session",
+      "description": "Description (optionnel)",
+      "placeholder": "Ex: Conseil de classe L1 EMSP 2025-2026",
+      "create": "Créer",
+      "cancel": "Annuler"
+    },
+    "share": {
+      "title": "Partager la Session",
+      "email": "Email de l'utilisateur",
+      "role": "Rôle",
+      "roles": {
+        "admin": "Administrateur",
+        "editor": "Éditeur",
+        "reader": "Lecteur"
+      },
+      "share": "Partager",
+      "cancel": "Annuler"
+    },
+    "actions": {
+      "edit": "Modifier",
+      "delete": "Supprimer",
+      "share": "Partager",
+      "leave": "Quitter"
+    },
+    "guest": {
+      "warning": "Mode invité",
+      "message": "Vos sessions et données sont sauvegardées temporairement. Créez un compte pour les conserver définitivement.",
+      "createAccount": "Créer un compte"
+    }
+  },
+  "upload": {
+    "title": "Importer des Données",
+    "subtitle": "Téléchargez votre fichier Excel pour commencer",
+    "dragDrop": "Glissez-déposez votre fichier ici ou cliquez pour sélectionner",
+    "formats": "Formats acceptés: .xlsx, .xls",
+    "upload": "Télécharger",
+    "processing": "Traitement en cours...",
+    "success": "Fichier traité avec succès !",
+    "error": "Erreur lors du traitement du fichier"
+  },
+  "dashboard": {
+    "title": "Tableau de Bord",
+    "stats": {
+      "totalStudents": "Total Étudiants",
+      "averageGrade": "Moyenne Générale",
+      "passRate": "Taux de Réussite",
+      "classes": "Classes"
+    }
+  },
+  "students": {
+    "title": "Liste des Étudiants",
+    "search": "Rechercher un étudiant...",
+    "columns": {
+      "rank": "Rang",
+      "name": "Nom",
+      "matricule": "Matricule",
+      "average": "Moyenne",
+      "status": "Statut"
+    },
+    "detail": {
+      "title": "Détails de l'Étudiant",
+      "grades": "Notes",
+      "semester": "Semestre",
+      "annual": "Annuel"
+    }
+  },
+  "deliberation": {
+    "title": "Délibération & Procès-Verbal",
+    "generate": "Générer le PV",
+    "download": "Télécharger"
+  },
+  "admin": {
+    "title": "Administration",
+    "global": {
+      "title": "Administration de l'application",
+      "subtitle": "Gérez les paramètres globaux de l'application EMSP Dashboard",
+      "logo": {
+        "title": "Logo de l'application",
+        "upload": "Télécharger un logo",
+        "remove": "Supprimer le logo",
+        "formats": "Formats acceptés: PNG, JPG, JPEG, GIF, SVG. Taille maximale: 2MB.",
+        "preview": "Ce logo sera affiché dans la barre latérale à la place du texte \"EMSP\"",
+        "saving": "Sauvegarde...",
+        "saved": "Sauvegardé"
+      },
+      "save": "Sauvegarder"
+    },
+    "session": {
+      "title": "Administration de la Session",
+      "settings": "Paramètres",
+      "export": "Exporter les Données"
+    }
+  },
+  "common": {
+    "loading": "Chargement...",
+    "error": "Erreur",
+    "success": "Succès",
+    "cancel": "Annuler",
+    "confirm": "Confirmer",
+    "yes": "Oui",
+    "no": "Non",
+    "save": "Sauvegarder",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "back": "Retour",
+    "next": "Suivant",
+    "previous": "Précédent",
+    "close": "Fermer",
+    "open": "Ouvrir",
+    "select": "Sélectionner",
+    "selected": "Sélectionné",
+    "all": "Tous",
+    "none": "Aucun",
+    "search": "Rechercher",
+    "filter": "Filtrer",
+    "sort": "Trier",
+    "export": "Exporter",
+    "import": "Importer",
+    "download": "Télécharger",
+    "upload": "Télécharger",
+    "file": "Fichier",
+    "files": "Fichiers"
+  },
+  "classes": {
+    "title": "Sélection de Classe",
+    "all": "Toutes les classes",
+    "select": "Sélectionner une classe",
+    "niveau": "Niveau",
+    "filiere": "Filière",
+    "semester": "Semestre",
+    "annual": "Annuel",
+    "s1": "Semestre 1",
+    "s2": "Semestre 2"
+  },
+  "grades": {
+    "title": "Notes",
+    "average": "Moyenne",
+    "grade": "Note",
+    "coefficient": "Coefficient",
+    "total": "Total",
+    "rank": "Rang",
+    "status": "Statut",
+    "passed": "Admis",
+    "failed": "Échec",
+    "excellent": "Excellent",
+    "good": "Bien",
+    "average": "Moyen",
+    "poor": "Faible"
+  },
+  "language": {
+    "french": "Français",
+    "english": "English",
+    "switch": "Changer de langue"
+  }
+}
