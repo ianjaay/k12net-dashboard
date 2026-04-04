@@ -13,6 +13,8 @@ export interface GlobalAppSettings {
   rulesConfig?: K12YearRulesConfig;
   /** All available year rule configs */
   yearConfigs?: Record<AcademicYear, K12YearRulesConfig>;
+  /** Base URL for student photo web service, e.g. https://agfne.sigfne.net/vas/picture-noprod/ */
+  photoBaseUrl?: string;
 }
 
 interface GlobalSettingsContextType {

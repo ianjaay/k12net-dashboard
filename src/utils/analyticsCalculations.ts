@@ -346,12 +346,12 @@ export function classifyStudent(student: K12Student, currentTerm: TermId): Stude
 
 export function classifyDisciplineProfile(
   student: K12Student,
-  termId: TermId,
+  termId: TermId | 'ANNUAL',
 ): DisciplineProfile {
   const famAvgs: Record<string, number[]> = { litteraire: [], scientifique: [] };
 
   for (const sg of student.subjectGrades) {
-    const termGrade = sg.terms[termId]?.average;
+    const termGrade = termId === 'ANNUAL' ? sg.yearAverage : sg.terms[termId]?.average;
     if (termGrade == null) continue;
     const name = sg.subjectName;
     for (const [family, subjects] of Object.entries(FAMILIES)) {
@@ -379,6 +379,7 @@ export function generateProgressionReport(
   student: K12Student,
   classStudents: K12Student[],
   currentTerm: TermId,
+  isAnnual?: boolean,
 ): ProgressionReport {
   const yr = student.yearResult;
   const snapshots: TermSnapshot[] = [];
@@ -448,7 +449,7 @@ export function generateProgressionReport(
     snapshots,
     deltas: { moyenneDelta: moyenneDeltas, rangDelta: rangDeltas },
     profile: classifyStudent(student, currentTerm),
-    disciplineProfile: classifyDisciplineProfile(student, currentTerm),
+    disciplineProfile: classifyDisciplineProfile(student, isAnnual ? 'ANNUAL' : currentTerm),
     positionVsClass: posVsClass,
     percentile: pctile,
     volatility: vol,

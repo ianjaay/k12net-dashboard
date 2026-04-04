@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { extractMatriculeFromFilename } from '../utils/photos';
+import { useGlobalSettings } from './GlobalSettingsContext';
 
 // photos stored as: matricule (uppercase) → data URL string
 export type PhotoMap = Record<string, string>;
@@ -17,6 +18,9 @@ const STORAGE_KEY = 'emsp-student-photos';
 const StudentPhotosContext = createContext<StudentPhotosContextType | undefined>(undefined);
 
 export function StudentPhotosProvider({ children }: { children: ReactNode }) {
+  const { settings } = useGlobalSettings();
+  const photoBaseUrl = settings.photoBaseUrl;
+
   const [photos, setPhotosState] = useState<PhotoMap>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -42,6 +46,8 @@ export function StudentPhotosProvider({ children }: { children: ReactNode }) {
   const getPhoto = useCallback(
     (matricule: string) => {
       const normalized = matricule.toUpperCase();
+
+      // 1. Check local photos first
       if (photos[normalized]) return photos[normalized];
 
       const matchingKey = Object.keys(photos).find((key) => {
@@ -50,10 +56,17 @@ export function StudentPhotosProvider({ children }: { children: ReactNode }) {
         if (normalizedKey.startsWith(`${normalized}_`) || normalizedKey.startsWith(`${normalized}-`)) return true;
         return extractMatriculeFromFilename(key) === normalized;
       });
+      if (matchingKey) return photos[matchingKey];
 
-      return matchingKey ? photos[matchingKey] : undefined;
+      // 2. If photoBaseUrl is configured, return the web service URL directly
+      if (photoBaseUrl) {
+        const baseUrl = photoBaseUrl.endsWith('/') ? photoBaseUrl : `${photoBaseUrl}/`;
+        return `${baseUrl}${encodeURIComponent(matricule)}`;
+      }
+
+      return undefined;
     },
-    [photos],
+    [photos, photoBaseUrl],
   );
 
   return (
