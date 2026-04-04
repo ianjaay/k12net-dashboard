@@ -18,7 +18,7 @@ import type {
   TermSanction,
   YearResult,
 } from '../types/k12';
-import { getGradeLevelGroup, isTerminalGrade } from '../types/k12';
+import { getGradeLevelGroup, isTerminalGrade, computeWeightedAverage } from '../types/k12';
 
 // ─── Built-in Year Configs ──────────────────────────────────────────────────
 
@@ -99,9 +99,9 @@ export function computeTermDistinction(
   gradeLevel: GradeLevel,
   config: K12YearRulesConfig,
 ): TermDistinction {
-  if (termMarks.isExempt || termMarks.termAverage === null) return null;
+  if (termMarks.isExempt || termMarks.weightedAverage === null) return null;
 
-  const avg = termMarks.termAverage;
+  const avg = termMarks.weightedAverage;
   const group = getGradeLevelGroup(gradeLevel);
   const thresholds: DistinctionThresholds = config.termDistinction[group];
 
@@ -159,9 +159,9 @@ export function computeTermSanction(
   termMarks: TermMarks,
   config: K12YearRulesConfig,
 ): TermSanction {
-  if (termMarks.isExempt || termMarks.termAverage === null) return null;
+  if (termMarks.isExempt || termMarks.weightedAverage === null) return null;
 
-  const avg = termMarks.termAverage;
+  const avg = termMarks.weightedAverage;
   const thresholds = config.termSanction;
 
   // BTI: avg < 8.5
@@ -194,7 +194,7 @@ export function computeTermResult(
 ): Omit<TermResult, 'rank' | 'totalStudents'> {
   return {
     termId: termMarks.termId,
-    termAverage: termMarks.termAverage,
+    termAverage: termMarks.weightedAverage,
     distinction: computeTermDistinction(termMarks, gradeLevel, config),
     sanction: computeTermSanction(termMarks, config),
     isExempt: termMarks.isExempt,
@@ -321,6 +321,9 @@ function findCourseYearGrade(student: K12Student, courseCode: string): number | 
 
 /**
  * Compute the complete year result (all terms + promotion) for a student.
+ * Year average is computed as weighted average of per-subject year averages:
+ *   Σ(subject_yearAvg × coef) / Σ(coef)
+ * This matches K12net's calculation.
  */
 export function computeYearResult(
   student: K12Student,
@@ -333,13 +336,13 @@ export function computeYearResult(
     totalStudents: 0,
   }));
 
-  // Year average = average of term averages (for terms with grades)
-  const termAverages = termResults
-    .filter(tr => tr.termAverage !== null && !tr.isExempt)
-    .map(tr => tr.termAverage!);
-  const yearAverage = termAverages.length > 0
-    ? termAverages.reduce((a, b) => a + b, 0) / termAverages.length
-    : null;
+  // Year average = weighted average of per-subject year averages
+  // Uses subject yearAverage (from Excel "Fin d'année" or computed mean of term averages)
+  const yearAverage = computeWeightedAverage(
+    student.subjectGrades
+      .filter(sg => !sg.isBonus && sg.coefficient > 0)
+      .map(sg => ({ mark: sg.yearAverage, coefficient: sg.coefficient }))
+  );
 
   const promotionStatus = computePromotionStatus(
     yearAverage,
@@ -557,68 +560,68 @@ function computeTermStats(students: K12Student[], termId: TermId): TermStats {
 function buildBranchTransitions2024(): BranchTransitionRule[] {
   return [
     // ─── Repeating 11ème (Seconde) ───
-    { fromGradeLevel: '11eme', fromBranch: 'C', toBranch: 'D', isRepeating: true },
-    { fromGradeLevel: '11eme', fromBranch: 'A', toBranch: 'A2', isRepeating: true },
+    { fromGradeLevel: '11', fromBranch: 'C', toBranch: 'D', isRepeating: true },
+    { fromGradeLevel: '11', fromBranch: 'A', toBranch: 'A2', isRepeating: true },
     // ─── Non-Repeating 11ème ───
     {
-      fromGradeLevel: '11eme', fromBranch: 'C', toBranch: 'C', isRepeating: false,
+      fromGradeLevel: '11', fromBranch: 'C', toBranch: 'C', isRepeating: false,
       conditions: { minYearAverage: 13, courseMinGrades: { 'Mat11C': 14, 'PC11C': 14, 'SVT11C': 12 } },
     },
-    { fromGradeLevel: '11eme', fromBranch: 'C', toBranch: 'D', isRepeating: false },
-    { fromGradeLevel: '11eme', fromBranch: 'A', toBranch: 'A2', isRepeating: false },
+    { fromGradeLevel: '11', fromBranch: 'C', toBranch: 'D', isRepeating: false },
+    { fromGradeLevel: '11', fromBranch: 'A', toBranch: 'A2', isRepeating: false },
     // ─── Repeating 12ème (Première) ───
     {
-      fromGradeLevel: '12eme', fromBranch: 'D', toBranch: 'D', isRepeating: true,
+      fromGradeLevel: '12', fromBranch: 'D', toBranch: 'D', isRepeating: true,
       conditions: { minYearAverage: 10, courseMinGrades: { 'Mat12D': 11, 'PC12D': 11, 'SVT12D': 12 } },
     },
-    { fromGradeLevel: '12eme', fromBranch: 'D', toBranch: 'A1', isRepeating: true },
-    { fromGradeLevel: '12eme', fromBranch: 'A2', toBranch: 'A2', isRepeating: true },
+    { fromGradeLevel: '12', fromBranch: 'D', toBranch: 'A1', isRepeating: true },
+    { fromGradeLevel: '12', fromBranch: 'A2', toBranch: 'A2', isRepeating: true },
     // ─── Non-Repeating 12ème ───
     {
-      fromGradeLevel: '12eme', fromBranch: 'A2', toBranch: 'A1', isRepeating: false,
+      fromGradeLevel: '12', fromBranch: 'A2', toBranch: 'A1', isRepeating: false,
       conditions: { minYearAverage: 12, courseMinGrades: { 'Mat12A2': 12 } },
     },
     {
-      fromGradeLevel: '12eme', fromBranch: 'D', toBranch: 'D', isRepeating: false,
+      fromGradeLevel: '12', fromBranch: 'D', toBranch: 'D', isRepeating: false,
       conditions: { minYearAverage: 10, courseMinGrades: { 'Mat12D': 11, 'PC12D': 11, 'SVT12D': 12 } },
     },
     {
-      fromGradeLevel: '12eme', fromBranch: 'C', toBranch: 'C', isRepeating: false,
+      fromGradeLevel: '12', fromBranch: 'C', toBranch: 'C', isRepeating: false,
       conditions: { minYearAverage: 13, courseMinGrades: { 'Mat12C': 13, 'PC12C': 13, 'SVT12C': 12 } },
     },
-    { fromGradeLevel: '12eme', fromBranch: 'D', toBranch: 'A1', isRepeating: false },
-    { fromGradeLevel: '12eme', fromBranch: 'A2', toBranch: 'A2', isRepeating: false },
+    { fromGradeLevel: '12', fromBranch: 'D', toBranch: 'A1', isRepeating: false },
+    { fromGradeLevel: '12', fromBranch: 'A2', toBranch: 'A2', isRepeating: false },
   ];
 }
 
 function buildBranchTransitions2022(): BranchTransitionRule[] {
   return [
     // ─── Repeating 11ème ───
-    { fromGradeLevel: '11eme', fromBranch: 'C', toBranch: 'D', isRepeating: true },
-    { fromGradeLevel: '11eme', fromBranch: 'A', toBranch: 'A2', isRepeating: true },
+    { fromGradeLevel: '11', fromBranch: 'C', toBranch: 'D', isRepeating: true },
+    { fromGradeLevel: '11', fromBranch: 'A', toBranch: 'A2', isRepeating: true },
     // ─── Non-Repeating 11ème ───
     {
-      fromGradeLevel: '11eme', fromBranch: 'C', toBranch: 'C', isRepeating: false,
+      fromGradeLevel: '11', fromBranch: 'C', toBranch: 'C', isRepeating: false,
       conditions: { minYearAverage: 12.5, courseMinGrades: { 'Mat11C': 13, 'PC11C': 13 } },
     },
     {
-      fromGradeLevel: '11eme', fromBranch: 'A', toBranch: 'A1', isRepeating: false,
+      fromGradeLevel: '11', fromBranch: 'A', toBranch: 'A1', isRepeating: false,
       conditions: { minYearAverage: 12, courseMinGrades: { 'Mat11A': 13 } },
     },
-    { fromGradeLevel: '11eme', fromBranch: 'C', toBranch: 'D', isRepeating: false },
-    { fromGradeLevel: '11eme', fromBranch: 'A', toBranch: 'A2', isRepeating: false },
+    { fromGradeLevel: '11', fromBranch: 'C', toBranch: 'D', isRepeating: false },
+    { fromGradeLevel: '11', fromBranch: 'A', toBranch: 'A2', isRepeating: false },
     // ─── Repeating 12ème ───
-    { fromGradeLevel: '12eme', fromBranch: 'D', toBranch: 'D', isRepeating: true },
-    { fromGradeLevel: '12eme', fromBranch: 'C', toBranch: 'C', isRepeating: true },
-    { fromGradeLevel: '12eme', fromBranch: 'A2', toBranch: 'A2', isRepeating: true },
+    { fromGradeLevel: '12', fromBranch: 'D', toBranch: 'D', isRepeating: true },
+    { fromGradeLevel: '12', fromBranch: 'C', toBranch: 'C', isRepeating: true },
+    { fromGradeLevel: '12', fromBranch: 'A2', toBranch: 'A2', isRepeating: true },
     // ─── Non-Repeating 12ème ───
     {
-      fromGradeLevel: '12eme', fromBranch: 'A2', toBranch: 'A1', isRepeating: false,
+      fromGradeLevel: '12', fromBranch: 'A2', toBranch: 'A1', isRepeating: false,
       conditions: { minYearAverage: 12, courseMinGrades: { 'Mat12A2': 13 } },
     },
-    { fromGradeLevel: '12eme', fromBranch: 'D', toBranch: 'D', isRepeating: false },
-    { fromGradeLevel: '12eme', fromBranch: 'C', toBranch: 'C', isRepeating: false },
-    { fromGradeLevel: '12eme', fromBranch: 'A2', toBranch: 'A2', isRepeating: false },
-    { fromGradeLevel: '12eme', fromBranch: 'A1', toBranch: 'A1', isRepeating: false },
+    { fromGradeLevel: '12', fromBranch: 'D', toBranch: 'D', isRepeating: false },
+    { fromGradeLevel: '12', fromBranch: 'C', toBranch: 'C', isRepeating: false },
+    { fromGradeLevel: '12', fromBranch: 'A2', toBranch: 'A2', isRepeating: false },
+    { fromGradeLevel: '12', fromBranch: 'A1', toBranch: 'A1', isRepeating: false },
   ];
 }

@@ -1,25 +1,24 @@
 import { useSession } from '../../contexts/SessionContext';
 import StudentList from '../StudentList';
 import { useNavigate } from 'react-router-dom';
-import type { Student } from '../../types';
+import type { K12Student } from '../../types/k12';
 
 export default function StudentsRoute() {
-  const { activeData, sessionId, hasBothSemesters, semesterView, setSemesterView } = useSession();
+  const { activeStudents, sessionId, termView, setTermView } = useSession();
   const navigate = useNavigate();
 
-  if (!activeData?.students) return <p className="text-sm" style={{ color: '#8392a5' }}>Aucune donnée chargée</p>;
+  if (activeStudents.length === 0) return <p className="text-sm" style={{ color: '#8392a5' }}>Aucune donnée chargée</p>;
 
-  const handleStudentClick = (s: Student) => {
+  const handleStudentClick = (s: K12Student) => {
     navigate(`/sessions/${sessionId}/students/${encodeURIComponent(s.matricule)}`);
   };
 
   return (
     <StudentList
-      students={activeData.students}
+      students={activeStudents}
+      termView={termView}
+      onTermViewChange={setTermView}
       onStudentClick={handleStudentClick}
-      hasBothSemesters={hasBothSemesters}
-      semesterView={semesterView}
-      onSemesterViewChange={setSemesterView}
     />
   );
 }
