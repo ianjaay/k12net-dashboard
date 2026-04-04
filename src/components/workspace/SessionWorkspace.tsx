@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, ClipboardList, Settings, Menu, Search, Bell, ChevronRight, History, LogOut, ArrowLeft, AlertTriangle, Upload, Loader2 } from 'lucide-react';
+import { LayoutDashboard, Users, ClipboardList, Settings, Menu, Search, Bell, ChevronRight, History, LogOut, ArrowLeft, AlertTriangle, Upload, Loader2, FileText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SessionProvider, useSession } from '../../contexts/SessionContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -71,6 +71,7 @@ function SessionWorkspaceInner() {
     { path: `${basePath}/dashboard`, label: t('navigation.dashboard'), icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
     { path: `${basePath}/students`, label: 'Élèves', icon: <Users className="w-[18px] h-[18px]" /> },
     { path: `${basePath}/deliberation`, label: t('navigation.deliberation'), icon: <ClipboardList className="w-[18px] h-[18px]" /> },
+    { path: `${basePath}/reports`, label: 'Rapports', icon: <FileText className="w-[18px] h-[18px]" /> },
     { path: `${basePath}/history`, label: t('navigation.history'), icon: <History className="w-[18px] h-[18px]" /> },
     ...(userRole !== 'reader'
       ? [{ path: `${basePath}/admin`, label: t('navigation.admin'), icon: <Settings className="w-[18px] h-[18px]" /> }]

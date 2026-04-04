@@ -10,6 +10,7 @@ import StudentDetailRoute from './components/workspace/StudentDetailRoute';
 import DeliberationRoute from './components/workspace/DeliberationRoute';
 import AdminRoute from './components/workspace/AdminRoute';
 import GlobalAdminPage from './components/workspace/GlobalAdminPage';
+import ReportsRoute from './components/workspace/ReportsRoute';
 import VersionHistory from './components/workspace/VersionHistory';
 
 export const router = createBrowserRouter([
@@ -29,6 +30,7 @@ export const router = createBrowserRouter([
           { path: 'students', element: <StudentsRoute /> },
           { path: 'students/:matricule', element: <StudentDetailRoute /> },
           { path: 'deliberation', element: <DeliberationRoute /> },
+          { path: 'reports', element: <ReportsRoute /> },
           { path: 'admin', element: <AdminRoute /> },
           { path: 'history', element: <VersionHistory /> },
         ],

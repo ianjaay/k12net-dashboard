@@ -3,9 +3,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
   PieChart, Pie, ResponsiveContainer,
 } from 'recharts';
-import { Users, TrendingUp, Award, AlertTriangle, ChevronDown, ChevronUp, XCircle } from 'lucide-react';
-import type { K12Student, TermView } from '../types/k12';
+import { Users, TrendingUp, Award, AlertTriangle, ChevronDown, ChevronUp, XCircle, Bell } from 'lucide-react';
+import type { K12Student, TermView, TermId } from '../types/k12';
 import { computeClassStats } from '../utils/k12RulesEngine';
+import { computePeriodStats, calculateDelta, generateAllAlerts } from '../utils/analyticsCalculations';
+import type { DeltaResult } from '../types/analytics';
+import MetricCard, { DeltaBadge } from './MetricCard';
 import ExportButton from './ExportButton';
 import type { ExportTableData } from '../utils/exportTable';
 
@@ -109,22 +112,6 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
     { name: 'Exclu', value: stats.expelled, color: STATUS_COLORS.EXCLU },
   ].filter(d => d.value > 0);
 
-  const yearAverages = students
-    .map(s => s.yearResult?.yearAverage)
-    .filter((v): v is number => v != null)
-    .sort((a, b) => a - b);
-  const median = yearAverages.length > 0
-    ? yearAverages.length % 2 === 0
-      ? ((yearAverages[yearAverages.length / 2 - 1] + yearAverages[yearAverages.length / 2]) / 2).toFixed(2)
-      : yearAverages[Math.floor(yearAverages.length / 2)].toFixed(2)
-    : '—';
-  const stddev = yearAverages.length > 1
-    ? (() => {
-      const mean = yearAverages.reduce((a, b) => a + b, 0) / yearAverages.length;
-      return Math.sqrt(yearAverages.reduce((sum, v) => sum + (v - mean) ** 2, 0) / yearAverages.length).toFixed(2);
-    })()
-    : '—';
-
   const getTopStudentsExport = useCallback((): ExportTableData => {
     const top = [...students]
       .filter(s => s.yearResult?.yearAverage != null)
@@ -141,6 +128,49 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
       filename: 'meilleurs_eleves',
     };
   }, [students]);
+
+  const periodMoyenne = useMemo(() => {
+    if (termView === 'ANNUAL') return stats.averageClassGrade;
+    return stats.termStats[termView as 'T1' | 'T2' | 'T3']?.averageGrade ?? null;
+  }, [stats, termView]);
+
+  // ── Period stats with deltas ──
+  const periodStats = useMemo(() => computePeriodStats(students, termView === 'ANNUAL' ? 'ANNUAL' : termView), [students, termView]);
+
+  const prevStats = useMemo(() => {
+    if (termView === 'ANNUAL' || termView === 'T1') return [];
+    const refs: { tid: TermId; stats: ReturnType<typeof computePeriodStats> }[] = [];
+    if (termView === 'T2') {
+      refs.push({ tid: 'T1', stats: computePeriodStats(students, 'T1') });
+    } else if (termView === 'T3') {
+      refs.push({ tid: 'T2', stats: computePeriodStats(students, 'T2') });
+      refs.push({ tid: 'T1', stats: computePeriodStats(students, 'T1') });
+    }
+    return refs;
+  }, [students, termView]);
+
+  function buildDeltas(current: number | null, field: 'mean' | 'median' | 'stddev' | 'min' | 'max' | 'range' | 'q1' | 'q3'): { delta: DeltaResult; format?: 'number'; invertColor?: boolean }[] {
+    return prevStats
+      .map(p => {
+        const d = calculateDelta(current, p.stats[field], p.tid);
+        return d ? { delta: d, invertColor: field === 'stddev' } : null;
+      })
+      .filter((d): d is { delta: DeltaResult; invertColor: boolean } => d !== null);
+  }
+
+  // ── Alerts ──
+  const alerts = useMemo(() => {
+    if (termView === 'ANNUAL' || termView === 'T1') return [];
+    return generateAllAlerts(students, termView as TermId);
+  }, [students, termView]);
+
+  const alertCounts = useMemo(() => {
+    const counts = { danger: 0, warning: 0, success: 0, info: 0 };
+    for (const a of alerts) counts[a.severity]++;
+    return counts;
+  }, [alerts]);
+
+  const [showAlerts, setShowAlerts] = useState(false);
 
   return (
     <div className="space-y-5">
@@ -164,28 +194,67 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
         </div>
       </div>
 
+      {/* Alerts banner */}
+      {alerts.length > 0 && (
+        <div className="card-cassie overflow-hidden">
+          <div
+            className="px-5 py-3 flex items-center justify-between cursor-pointer select-none"
+            onClick={() => setShowAlerts(!showAlerts)}
+          >
+            <div className="flex items-center gap-3">
+              <Bell className="w-4 h-4" style={{ color: '#5556fd' }} />
+              <span className="text-sm font-medium" style={{ color: '#06072d' }}>Alertes</span>
+              <div className="flex gap-1.5">
+                {alertCounts.danger > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#fce8ea', color: '#dc3545' }}>{alertCounts.danger}</span>}
+                {alertCounts.warning > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#fff8e1', color: '#d4a017' }}>{alertCounts.warning}</span>}
+                {alertCounts.success > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#e6f9ef', color: '#22d273' }}>{alertCounts.success}</span>}
+                {alertCounts.info > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#dbeafe', color: '#2563eb' }}>{alertCounts.info}</span>}
+              </div>
+            </div>
+            {showAlerts ? <ChevronUp className="w-4 h-4" style={{ color: '#8392a5' }} /> : <ChevronDown className="w-4 h-4" style={{ color: '#8392a5' }} />}
+          </div>
+          {showAlerts && (
+            <div className="px-5 pb-4 space-y-1.5 max-h-60 overflow-y-auto">
+              {alerts.slice(0, 30).map((a, i) => {
+                const sc: Record<string, { bg: string; color: string; border: string }> = {
+                  danger: { bg: '#fce8ea', color: '#dc3545', border: '#f5c6cb' },
+                  warning: { bg: '#fff8e1', color: '#856404', border: '#ffeeba' },
+                  success: { bg: '#e6f9ef', color: '#166534', border: '#c3e6cb' },
+                  info: { bg: '#dbeafe', color: '#1e40af', border: '#bfdbfe' },
+                };
+                const s = sc[a.severity];
+                return (
+                  <div key={i} className="text-[11px] px-3 py-1.5 rounded border" style={{ background: s.bg, color: s.color, borderColor: s.border }}>
+                    {a.message}
+                  </div>
+                );
+              })}
+              {alerts.length > 30 && <p className="text-[10px] text-center" style={{ color: '#8392a5' }}>+{alerts.length - 30} alertes</p>}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <KPICard icon={<Users className="w-5 h-5" />} label="Effectif" value={students.length} color="#5556fd" bg="#f0f0ff" />
-        <KPICard icon={<TrendingUp className="w-5 h-5" />} label="Moyenne" value={stats.averageClassGrade != null ? `${stats.averageClassGrade.toFixed(2)}/20` : '—'} color="#1e1a70" bg="#e8e8ff" />
-        <KPICard icon={<Award className="w-5 h-5" />} label="Admis" value={`${stats.promoted} (${pct(stats.promoted, students.length)}%)`} color="#22d273" bg="#e6f9ef" />
-        <KPICard icon={<AlertTriangle className="w-5 h-5" />} label="Redouble" value={`${stats.retained} (${pct(stats.retained, students.length)}%)`} color="#d4a017" bg="#fff8e1" />
-        <KPICard icon={<XCircle className="w-5 h-5" />} label="Exclu" value={`${stats.expelled} (${pct(stats.expelled, students.length)}%)`} color="#dc3545" bg="#fce8ea" />
+        <MetricCard icon={<Users className="w-5 h-5" />} label="Effectif" value={students.length} color="#5556fd" bg="#f0f0ff" />
+        <MetricCard
+          icon={<TrendingUp className="w-5 h-5" />} label="Moyenne"
+          value={periodMoyenne != null ? periodMoyenne.toFixed(2) : '—'} suffix="/20"
+          color="#1e1a70" bg="#e8e8ff"
+          deltas={buildDeltas(periodStats.mean, 'mean')}
+        />
+        <MetricCard icon={<Award className="w-5 h-5" />} label="Admis" value={`${stats.promoted} (${pct(stats.promoted, students.length)}%)`} color="#22d273" bg="#e6f9ef" />
+        <MetricCard icon={<AlertTriangle className="w-5 h-5" />} label="Redouble" value={`${stats.retained} (${pct(stats.retained, students.length)}%)`} color="#d4a017" bg="#fff8e1" />
+        <MetricCard icon={<XCircle className="w-5 h-5" />} label="Exclu" value={`${stats.expelled} (${pct(stats.expelled, students.length)}%)`} color="#dc3545" bg="#fce8ea" />
       </div>
 
-      {/* Stats row */}
+      {/* Stats row with deltas */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {([
-          ['Médiane', `${median}/20`],
-          ['Écart-type', stddev],
-          ['Minimum', stats.lowestAverage != null ? `${stats.lowestAverage.toFixed(2)}/20` : '—'],
-          ['Maximum', stats.highestAverage != null ? `${stats.highestAverage.toFixed(2)}/20` : '—'],
-        ] as const).map(([label, val]) => (
-          <div key={label} className="card-cassie p-4 text-center">
-            <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: '#8392a5' }}>{label}</p>
-            <p className="text-xl font-bold" style={{ color: '#06072d', fontFamily: "'Oswald', sans-serif" }}>{val}</p>
-          </div>
-        ))}
+        <MetricCard label="Médiane" value={periodStats.median?.toFixed(2) ?? '—'} suffix="/20" deltas={buildDeltas(periodStats.median, 'median')} />
+        <MetricCard label="Écart-type" value={periodStats.stddev?.toFixed(2) ?? '—'} deltas={buildDeltas(periodStats.stddev, 'stddev')} />
+        <MetricCard label="Minimum" value={periodStats.min?.toFixed(2) ?? '—'} suffix="/20" deltas={buildDeltas(periodStats.min, 'min')} />
+        <MetricCard label="Maximum" value={periodStats.max?.toFixed(2) ?? '—'} suffix="/20" deltas={buildDeltas(periodStats.max, 'max')} />
       </div>
 
       {/* Charts row */}
@@ -348,16 +417,6 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function KPICard({ icon, label, value, color, bg }: { icon: React.ReactNode; label: string; value: string | number; color: string; bg: string }) {
-  return (
-    <div className="card-cassie p-4">
-      <div className="inline-flex p-2 rounded mb-2" style={{ background: bg, color }}>{icon}</div>
-      <p className="text-[10px] uppercase tracking-widest" style={{ color: '#8392a5' }}>{label}</p>
-      <p className="text-lg font-bold mt-0.5" style={{ color: '#06072d' }}>{value}</p>
     </div>
   );
 }

@@ -5,7 +5,11 @@ import {
   ResponsiveContainer, Legend, Tooltip, ReferenceLine,
 } from 'recharts';
 import type { K12Student, TermId } from '../types/k12';
+import { PROFILE_META } from '../types/analytics';
+import { classifyStudent, generateStudentAlerts } from '../utils/analyticsCalculations';
 import { PromotionBadge, DistinctionBadge, SanctionBadge } from './Dashboard';
+import RadarDisciplinaire from './RadarDisciplinaire';
+import StudentProgression from './StudentProgression';
 
 interface Props {
   student: K12Student;
@@ -17,6 +21,24 @@ interface Props {
 export default function StudentDetail({ student, classStudents, onBack, photoUrl }: Props) {
   const [expandedTerm, setExpandedTerm] = useState<TermId | null>(null);
   const yr = student.yearResult;
+
+  // Detect the latest term with data
+  const latestTerm: TermId = useMemo(() => {
+    for (const tid of ['T3', 'T2', 'T1'] as TermId[]) {
+      if (yr?.termResults.some(t => t.termId === tid && t.termAverage !== null)) return tid;
+    }
+    return 'T1';
+  }, [yr]);
+
+  // Student profile
+  const profile = useMemo(() => classifyStudent(student, latestTerm), [student, latestTerm]);
+  const profileMeta = PROFILE_META[profile];
+
+  // Student-specific alerts
+  const studentAlerts = useMemo(
+    () => latestTerm !== 'T1' ? generateStudentAlerts(student, latestTerm) : [],
+    [student, latestTerm],
+  );
 
   // Evolution chart data: T1, T2, T3 averages + class avg
   const evolutionData = useMemo(() => {
@@ -75,6 +97,9 @@ export default function StudentDetail({ student, classStudents, onBack, photoUrl
                   Redoublant
                 </span>
               )}
+              <span className="text-[11px] font-semibold px-3 py-1 rounded" style={{ background: profileMeta.bg, color: profileMeta.color }}>
+                {profileMeta.label}
+              </span>
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
@@ -137,6 +162,32 @@ export default function StudentDetail({ student, classStudents, onBack, photoUrl
           </ResponsiveContainer>
         </div>
       )}
+
+      {/* Student alerts */}
+      {studentAlerts.length > 0 && (
+        <div className="space-y-1.5">
+          {studentAlerts.map((a, i) => {
+            const sc: Record<string, { bg: string; color: string; border: string }> = {
+              danger: { bg: '#fce8ea', color: '#dc3545', border: '#f5c6cb' },
+              warning: { bg: '#fff8e1', color: '#856404', border: '#ffeeba' },
+              success: { bg: '#e6f9ef', color: '#166534', border: '#c3e6cb' },
+              info: { bg: '#dbeafe', color: '#1e40af', border: '#bfdbfe' },
+            };
+            const s = sc[a.severity];
+            return (
+              <div key={i} className="text-[11px] px-4 py-2 rounded border" style={{ background: s.bg, color: s.color, borderColor: s.border }}>
+                {a.message}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Progression report */}
+      <StudentProgression student={student} classStudents={classStudents} currentTerm={latestTerm} />
+
+      {/* Radar disciplinaire */}
+      <RadarDisciplinaire student={student} classStudents={classStudents} termId={latestTerm} />
 
       {/* Per-term subject breakdown — accordion */}
       {student.termMarks.map(tm => (
