@@ -1,15 +1,18 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { loadGlobalSettings, saveGlobalSettings } from '../lib/firestore';
-import type { CourseStructure, ValidationRules } from '../types';
+import type { CourseDefinition, K12YearRulesConfig, AcademicYear } from '../types/k12';
 
 export interface GlobalAppSettings {
   logo?: string;
   schoolName?: string;
-  sessionTitle?: string;
-  sessionDate?: string;
-  courses?: CourseStructure;
-  validationRules?: ValidationRules;
+  academicYear?: AcademicYear;
+  /** Course catalog from K12net section list import */
+  courseCatalog?: CourseDefinition[];
+  /** Active rules config (selected year) */
+  rulesConfig?: K12YearRulesConfig;
+  /** All available year rule configs */
+  yearConfigs?: Record<AcademicYear, K12YearRulesConfig>;
 }
 
 interface GlobalSettingsContextType {
@@ -20,7 +23,7 @@ interface GlobalSettingsContextType {
 
 const GlobalSettingsContext = createContext<GlobalSettingsContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'emsp-global-settings';
+const STORAGE_KEY = 'k12net-global-settings';
 
 export function GlobalSettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<GlobalAppSettings>(() => {

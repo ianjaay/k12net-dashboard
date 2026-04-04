@@ -1,15 +1,21 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Image, X, Save, Check, Building2, FileSpreadsheet, CheckCircle, Scale, Hash, FolderOpen, Loader2, Users as UsersIcon, UserPlus, ShieldCheck as ShieldCheckIcon, UserX, RefreshCw as RefreshIcon, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import {
+  Image, X, Save, Check, Building2, FileSpreadsheet, CheckCircle,
+  Scale, Loader2, Users as UsersIcon, UserPlus, ShieldCheck as ShieldCheckIcon,
+  ChevronDown, ChevronUp, Trash2, GraduationCap, Calculator,
+} from 'lucide-react';
 import JSZip from 'jszip';
-import { useTranslation } from 'react-i18next';
-import { parseSectionList } from '../utils/excelParser';
-import type { CourseStructure, ValidationRules, UEValidationMode, CreditThresholdMode, UserProfile, AppRole, UserStatus } from '../types';
-import { DEFAULT_VALIDATION_RULES } from '../types';
 import type { GlobalAppSettings } from '../contexts/GlobalSettingsContext';
 import { useStudentPhotos } from '../contexts/StudentPhotosContext';
 import { useAuth } from '../contexts/AuthContext';
 import { extractMatriculeFromFilename } from '../utils/photos';
 import { getAllUsers, updateUserStatus, updateUserAppRole, createPendingUser, deleteUserAccount } from '../lib/firestore';
+import { parseSectionList, buildSubjectsByClass, extractGradeLevels, extractBranches } from '../utils/sectionListParser';
+import { BUILTIN_RULES, getRulesForYear } from '../utils/k12RulesEngine';
+import type { AcademicYear, K12YearRulesConfig } from '../types/k12';
+import { GRADE_LEVEL_LABELS } from '../types/k12';
+import type { UserProfile, AppRole, UserStatus } from '../types';
+import { RefreshCw as RefreshIcon } from 'lucide-react';
 
 interface Props {
   settings: GlobalAppSettings;
@@ -22,16 +28,20 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
   const { user: currentUser } = useAuth();
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(settings.logo || null);
-  const [schoolName, setSchoolName] = useState(settings.schoolName || 'ÉCOLE MULTINATIONALE SUPÉRIEURE DES POSTES D\'ABIDJAN');
-  const [sessionTitle, setSessionTitle] = useState(settings.sessionTitle || '');
-  const [sessionDate, setSessionDate] = useState(settings.sessionDate || '');
+  const [schoolName, setSchoolName] = useState(settings.schoolName || 'LYCÉE SAINTE MARIE DE COCODY ABIDJAN');
+  const [academicYear, setAcademicYear] = useState<AcademicYear>(settings.academicYear || '2024');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  // Course catalog
   const [coursesParsing, setCoursesParsing] = useState(false);
   const [coursesError, setCoursesError] = useState<string | null>(null);
-  const [localCourses, setLocalCourses] = useState<CourseStructure | undefined>(settings.courses);
-  const [rules, setRules] = useState<ValidationRules>(settings.validationRules ?? DEFAULT_VALIDATION_RULES);
-  const { t } = useTranslation();
+  const [localCatalog, setLocalCatalog] = useState(settings.courseCatalog);
+
+  // Rules
+  const [rulesConfig, setRulesConfig] = useState<K12YearRulesConfig>(
+    settings.rulesConfig ?? getRulesForYear(settings.academicYear || '2024')
+  );
 
   // Photos
   const { photos, setPhotos, photoCount } = useStudentPhotos();
@@ -49,11 +59,11 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [userActionError, setUserActionError] = useState('');
   const [openSections, setOpenSections] = useState<Record<AdminSectionKey, boolean>>({
-    logo: true,
+    logo: false,
     courses: true,
     school: true,
     rules: true,
-    photos: true,
+    photos: false,
     users: true,
   });
 
@@ -61,6 +71,24 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
     setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
   }, []);
 
+  // ─── Course Catalog Stats ────────────────────────────────────────
+  const catalogStats = useMemo(() => {
+    if (!localCatalog || localCatalog.length === 0) return null;
+    const levels = extractGradeLevels(localCatalog);
+    const allClassrooms = new Set<string>();
+    for (const c of localCatalog) {
+      for (const cl of c.classrooms) allClassrooms.add(cl);
+    }
+    const subjectsByClass = buildSubjectsByClass(localCatalog);
+    return {
+      courseCount: localCatalog.length,
+      levels,
+      classroomCount: allClassrooms.size,
+      subjectsByClass,
+    };
+  }, [localCatalog]);
+
+  // ─── Users ───────────────────────────────────────────────────────
   const loadUsers = useCallback(async () => {
     setUsersLoading(true);
     try {
@@ -104,13 +132,11 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
 
   const handleDeleteUser = async (targetUser: UserProfile) => {
     if (targetUser.uid === currentUser?.uid) {
-      setUserActionError('Vous ne pouvez pas supprimer votre propre compte depuis cette interface.');
+      setUserActionError('Vous ne pouvez pas supprimer votre propre compte.');
       return;
     }
-
-    const confirmed = confirm(`Supprimer le compte de ${targetUser.displayName || targetUser.email} ?\n\nCette action retire l'utilisateur de la liste et des sessions partagées.`);
+    const confirmed = confirm(`Supprimer le compte de ${targetUser.displayName || targetUser.email} ?`);
     if (!confirmed) return;
-
     setUserActionError('');
     try {
       await deleteUserAccount(targetUser.uid);
@@ -120,42 +146,21 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
     }
   };
 
-  // Logo handling
+  // ─── Logo ────────────────────────────────────────────────────────
   const handleLogoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      alert('Veuillez sélectionner un fichier image valide.');
-      return;
-    }
-
-    // Validate file size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      alert('La taille du fichier ne doit pas dépasser 2MB.');
-      return;
-    }
-
+    if (!file.type.startsWith('image/')) { alert('Veuillez sélectionner une image.'); return; }
+    if (file.size > 2 * 1024 * 1024) { alert('Taille max: 2 MB.'); return; }
     setLogoFile(file);
-
-    // Create preview
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setLogoPreview(result);
-      setHasUnsavedChanges(true);
-    };
+    reader.onload = (ev) => { setLogoPreview(ev.target?.result as string); setHasUnsavedChanges(true); };
     reader.readAsDataURL(file);
   }, []);
 
-  const handleRemoveLogo = () => {
-    setLogoFile(null);
-    setLogoPreview(null);
-    setHasUnsavedChanges(true);
-  };
+  const handleRemoveLogo = () => { setLogoFile(null); setLogoPreview(null); setHasUnsavedChanges(true); };
 
-  // ZIP photos upload
+  // ─── ZIP Photos ──────────────────────────────────────────────────
   const handleZipUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
     e.preventDefault();
     const file = 'dataTransfer' in e ? e.dataTransfer.files[0] : (e as React.ChangeEvent<HTMLInputElement>).target.files?.[0];
@@ -169,18 +174,13 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
       const zip = await JSZip.loadAsync(file);
       const newPhotos: Record<string, string> = { ...photos };
       const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|bmp)$/i;
-
       const entries = Object.entries(zip.files).filter(
         ([name, entry]) => !entry.dir && IMAGE_EXTS.test(name) && !name.startsWith('__MACOSX'),
       );
-
       await Promise.all(entries.map(async ([name, entry]) => {
         const basename = name.split('/').pop() ?? name;
         const matricule = extractMatriculeFromFilename(basename);
-        if (!matricule) {
-          errors.push(`Impossible d'extraire l'ID depuis : ${basename}`);
-          return;
-        }
+        if (!matricule) { errors.push(`ID non trouvé: ${basename}`); return; }
         try {
           const blob = await entry.async('blob');
           const ext = basename.match(/\.[^.]+$/)?.[0] ?? '.jpg';
@@ -193,15 +193,12 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
           });
           newPhotos[matricule] = dataUrl;
           added++;
-        } catch {
-          errors.push(`Erreur lors du traitement de : ${basename}`);
-        }
+        } catch { errors.push(`Erreur: ${basename}`); }
       }));
-
       setPendingPhotos(newPhotos);
       setZipResult({ added, errors });
     } catch (err) {
-      setZipResult({ added: 0, errors: [`Impossible de lire le fichier ZIP : ${String(err)}`] });
+      setZipResult({ added: 0, errors: [`Impossible de lire le ZIP: ${String(err)}`] });
     } finally {
       setZipLoading(false);
     }
@@ -213,12 +210,7 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
     setPendingPhotos(null);
   }, [pendingPhotos, setPhotos]);
 
-  const handleCancelPhotoImport = useCallback(() => {
-    setPendingPhotos(null);
-    setZipResult(null);
-  }, []);
-
-  // Section list upload
+  // ─── Section List Upload ─────────────────────────────────────────
   const handleSectionListUpload = useCallback(async (e: React.DragEvent | React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
     const file = 'dataTransfer' in e ? e.dataTransfer.files[0] : e.target.files?.[0];
@@ -226,8 +218,9 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
     setCoursesParsing(true);
     setCoursesError(null);
     try {
-      const c = await parseSectionList(file);
-      setLocalCourses(c);
+      const buf = await file.arrayBuffer();
+      const catalog = parseSectionList(buf);
+      setLocalCatalog(catalog);
       setHasUnsavedChanges(true);
     } catch (err) {
       setCoursesError(String(err));
@@ -236,20 +229,61 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
     }
   }, []);
 
+  // ─── Rules Editing ───────────────────────────────────────────────
+  const handleYearChange = (year: AcademicYear) => {
+    setAcademicYear(year);
+    const config = getRulesForYear(year, settings.yearConfigs);
+    setRulesConfig(config);
+    setHasUnsavedChanges(true);
+  };
+
+  const updateDistinctionThreshold = (
+    group: '7-10' | '11-13',
+    field: 'thMin' | 'theMin' | 'thfMin',
+    value: number
+  ) => {
+    setRulesConfig(prev => ({
+      ...prev,
+      termDistinction: {
+        ...prev.termDistinction,
+        [group]: { ...prev.termDistinction[group], [field]: value },
+      },
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  const updateSanctionThreshold = (field: keyof K12YearRulesConfig['termSanction'], value: number) => {
+    setRulesConfig(prev => ({
+      ...prev,
+      termSanction: { ...prev.termSanction, [field]: value },
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  const updatePromotionThreshold = (field: keyof K12YearRulesConfig['promotion'], value: number) => {
+    setRulesConfig(prev => ({
+      ...prev,
+      promotion: { ...prev.promotion, [field]: value },
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  // ─── Save ────────────────────────────────────────────────────────
   const handleSave = () => {
     setSaveStatus('saving');
     const newSettings: GlobalAppSettings = {
       ...settings,
       logo: logoPreview || undefined,
       schoolName: schoolName || undefined,
-      sessionTitle: sessionTitle || undefined,
-      sessionDate: sessionDate || undefined,
-      courses: localCourses,
-      validationRules: rules,
+      academicYear,
+      courseCatalog: localCatalog,
+      rulesConfig,
+      yearConfigs: {
+        ...(settings.yearConfigs ?? {}),
+        [academicYear]: rulesConfig,
+      },
     };
     onSettingsChange(newSettings);
-
-    // Simulate save delay
     setTimeout(() => {
       setSaveStatus('saved');
       setHasUnsavedChanges(false);
@@ -257,14 +291,15 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
     }, 500);
   };
 
+  // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold" style={{ color: '#06072d' }}>{t('admin.global.title')}</h1>
+          <h1 className="text-xl font-bold" style={{ color: '#06072d' }}>Administration K12net</h1>
           <p className="text-sm mt-1" style={{ color: '#8392a5' }}>
-            {t('admin.global.subtitle')}
+            Configuration des cours, règles de calcul et gestion des utilisateurs
           </p>
         </div>
         {hasUnsavedChanges && (
@@ -275,121 +310,132 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
             style={{ background: '#5556fd' }}
           >
             {saveStatus === 'saving' ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                {t('admin.global.logo.saving')}
-              </>
+              <><Loader2 className="w-4 h-4 animate-spin" /> Enregistrement...</>
             ) : saveStatus === 'saved' ? (
-              <>
-                <Check className="w-4 h-4" />
-                {t('admin.global.logo.saved')}
-              </>
+              <><Check className="w-4 h-4" /> Enregistré</>
             ) : (
-              <>
-                <Save className="w-4 h-4" />
-                {t('admin.global.save')}
-              </>
+              <><Save className="w-4 h-4" /> Enregistrer</>
             )}
           </button>
         )}
       </div>
 
-      {/* Logo Settings */}
-      <div className="card-cassie overflow-hidden">
-        <button type="button" onClick={() => toggleSection('logo')} className="w-full px-5 py-4 border-b flex items-center justify-between text-left" style={{ borderColor: '#e6e7ef' }}>
-          <div className="flex items-center gap-2">
-            <Image className="w-5 h-5" style={{ color: '#5556fd' }} />
-            <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>{t('admin.global.logo.title')}</h6>
+      {/* ═══ School Info ═══ */}
+      <AdminSection
+        icon={<Building2 className="w-5 h-5" style={{ color: '#5556fd' }} />}
+        title="Établissement & Année scolaire"
+        open={openSections.school}
+        onToggle={() => toggleSection('school')}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: '#373857' }}>Nom de l'établissement</label>
+            <input
+              type="text"
+              value={schoolName}
+              onChange={e => { setSchoolName(e.target.value); setHasUnsavedChanges(true); }}
+              className="w-full text-sm border rounded px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#5556fd]"
+              style={{ borderColor: '#e6e7ef', color: '#373857' }}
+            />
           </div>
-          {openSections.logo ? <ChevronUp className="w-4 h-4" style={{ color: '#8392a5' }} /> : <ChevronDown className="w-4 h-4" style={{ color: '#8392a5' }} />}
-        </button>
-        {openSections.logo && <div className="p-5">
-          <div className="space-y-4">
+          <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: '#373857' }}>
-                {t('admin.global.logo.upload')}
-              </label>
-              <p className="text-xs mb-3" style={{ color: '#8392a5' }}>
-                {t('admin.global.logo.formats')}
-              </p>
-
-              {/* Logo preview */}
-              {logoPreview && (
-                <div className="mb-4 flex items-center gap-4 p-4 border rounded" style={{ borderColor: '#e6e7ef', background: '#f9f9fd' }}>
-                  <img
-                    src={logoPreview}
-                    alt="Logo preview"
-                    className="h-12 w-auto object-contain"
-                  />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium" style={{ color: '#06072d' }}>Logo actuel</p>
-                    <p className="text-xs" style={{ color: '#8392a5' }}>
-                      {t('admin.global.logo.preview')}
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleRemoveLogo}
-                    className="p-2 rounded hover:bg-red-50 transition-colors"
-                    style={{ color: '#dc3545' }}
-                    title="Supprimer le logo"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              {/* Upload input */}
-              <div className="flex items-center gap-4">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLogoUpload}
-                  className="hidden"
-                  id="global-logo-upload"
-                />
-                <label
-                  htmlFor="global-logo-upload"
-                  className="inline-flex items-center gap-2 px-4 py-2 border rounded cursor-pointer hover:bg-[#f0f0ff] transition-colors"
-                  style={{ borderColor: '#e6e7ef', color: '#575d78' }}
-                >
-                  <Image className="w-4 h-4" />
-                  {logoPreview ? 'Changer le logo' : 'Choisir un logo'}
-                </label>
-                {logoFile && (
-                  <span className="text-sm" style={{ color: '#8392a5' }}>
-                    {logoFile.name} ({(logoFile.size / 1024 / 1024).toFixed(2)} MB)
-                  </span>
+              <label className="block text-sm font-medium mb-1" style={{ color: '#373857' }}>Année scolaire</label>
+              <select
+                value={academicYear}
+                onChange={e => handleYearChange(e.target.value)}
+                className="w-full text-sm border rounded px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#5556fd]"
+                style={{ borderColor: '#e6e7ef', color: '#373857' }}
+              >
+                <option value="2025">2025–2026</option>
+                <option value="2024">2024–2025</option>
+                <option value="2023">2023–2024</option>
+                <option value="2022">2022–2023</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: '#373857' }}>Règles actives</label>
+              <div className="text-sm px-3 py-2 border rounded" style={{ borderColor: '#e6e7ef', background: '#f9f9fd', color: '#575d78' }}>
+                <span className="font-medium">{academicYear}–{parseInt(academicYear) + 1}</span>
+                {BUILTIN_RULES[academicYear] ? (
+                  <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ background: '#e6f9ef', color: '#1a8a4d' }}>prédéfinies</span>
+                ) : (
+                  <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ background: '#fff3cd', color: '#856404' }}>personnalisées</span>
                 )}
               </div>
             </div>
           </div>
-        </div>}
-      </div>
+        </div>
+      </AdminSection>
 
-      {/* Section List (Course Structure) */}
-      <div className="card-cassie overflow-hidden">
-        <button type="button" onClick={() => toggleSection('courses')} className="w-full px-5 py-4 border-b flex items-center justify-between text-left" style={{ borderColor: '#e6e7ef' }}>
-          <div className="flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5" style={{ color: '#5556fd' }} />
-            <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>Liste des cours (Section List)</h6>
-          </div>
-          {openSections.courses ? <ChevronUp className="w-4 h-4" style={{ color: '#8392a5' }} /> : <ChevronDown className="w-4 h-4" style={{ color: '#8392a5' }} />}
-        </button>
-        {openSections.courses && <div className="p-5 space-y-4">
+      {/* ═══ Course Catalog (Section List) ═══ */}
+      <AdminSection
+        icon={<FileSpreadsheet className="w-5 h-5" style={{ color: '#5556fd' }} />}
+        title="Catalogue des cours (Section List)"
+        open={openSections.courses}
+        onToggle={() => toggleSection('courses')}
+      >
+        <div className="space-y-4">
           <p className="text-xs" style={{ color: '#8392a5' }}>
-            Ce fichier définit la structure des UE/ECUE et les crédits. Il sera disponible pour toutes les sessions.
+            Importez le fichier "Rapport sur la Liste des Sections" exporté depuis K12net.
+            Ce fichier définit les matières, coefficients et classes.
           </p>
 
-          {/* Current status */}
-          {localCourses && (
-            <div className="flex items-center gap-3 p-3 rounded border" style={{ background: '#e6f9ef', borderColor: '#c3e6cb' }}>
-              <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: '#22d273' }} />
-              <div className="text-sm" style={{ color: '#1a8a4d' }}>
-                <span className="font-medium">Liste chargée</span>
-                <span className="ml-2">
-                  {Object.keys(localCourses.ues).length} UEs · {Object.keys(localCourses.ecues).length} ECUEs
+          {/* Current catalog status */}
+          {catalogStats && (
+            <div className="p-4 rounded border" style={{ background: '#f0fdf4', borderColor: '#bbf7d0' }}>
+              <div className="flex items-center gap-2 mb-3">
+                <CheckCircle className="w-5 h-5" style={{ color: '#22c55e' }} />
+                <span className="font-medium text-sm" style={{ color: '#166534' }}>
+                  Catalogue chargé — {catalogStats.courseCount} cours · {catalogStats.classroomCount} classes
                 </span>
               </div>
+
+              {/* Level summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {catalogStats.levels.map(level => {
+                  const branches = localCatalog ? extractBranches(localCatalog, level) : [];
+                  const classCount = Object.keys(catalogStats.subjectsByClass).filter(cn => {
+                    const subjects = catalogStats.subjectsByClass[cn];
+                    return subjects.some(s => s.gradeLevel === level);
+                  }).length;
+                  return (
+                    <div key={level} className="text-xs p-2 rounded" style={{ background: '#fff', border: '1px solid #e6e7ef' }}>
+                      <div className="font-medium" style={{ color: '#06072d' }}>
+                        {GRADE_LEVEL_LABELS[level]}
+                        {branches.length > 0 && <span className="text-[10px] ml-1" style={{ color: '#8392a5' }}>({branches.join(', ')})</span>}
+                      </div>
+                      <div style={{ color: '#8392a5' }}>{classCount} classe(s)</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Subjects per class */}
+              <details className="mt-3">
+                <summary className="text-xs font-medium cursor-pointer" style={{ color: '#5556fd' }}>
+                  Voir les matières par classe
+                </summary>
+                <div className="mt-2 max-h-60 overflow-y-auto space-y-2">
+                  {Object.entries(catalogStats.subjectsByClass).sort(([a], [b]) => a.localeCompare(b)).map(([className, subjects]) => (
+                    <div key={className} className="text-xs p-2 rounded" style={{ background: '#f9f9fd', border: '1px solid #e6e7ef' }}>
+                      <div className="font-medium mb-1" style={{ color: '#06072d' }}>{className}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {subjects.map(s => (
+                          <span
+                            key={s.code}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded"
+                            style={{ background: s.isBehavioral ? '#fef3c7' : '#f0f0ff', color: s.isBehavioral ? '#92400e' : '#575d78' }}
+                          >
+                            {s.name}
+                            <span className="font-medium" style={{ color: '#5556fd' }}>×{s.coefficient}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
             </div>
           )}
 
@@ -406,742 +452,444 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
             onDragOver={e => e.preventDefault()}
             onDrop={handleSectionListUpload}
           >
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleSectionListUpload}
-            />
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleSectionListUpload} />
             <div className="flex items-center gap-4">
               {coursesParsing ? (
-                <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#5556fd', borderTopColor: 'transparent' }} />
+                <Loader2 className="w-6 h-6 animate-spin" style={{ color: '#5556fd' }} />
               ) : (
                 <FileSpreadsheet className="w-6 h-6" style={{ color: '#c0ccda' }} />
               )}
               <div className="flex-1">
                 <p className="font-medium text-sm" style={{ color: '#06072d' }}>
-                  {localCourses ? 'Remplacer la liste des cours' : 'Charger la liste des cours'}
+                  {localCatalog ? 'Remplacer le catalogue de cours' : 'Charger la liste des sections'}
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: '#8392a5' }}>
-                  Fichier Excel des cours et crédits (Section List Report)
+                  Fichier Excel "Rapport sur la Liste des Sections" de K12net (.xlsx)
                 </p>
               </div>
             </div>
           </label>
-        </div>}
-      </div>
+        </div>
+      </AdminSection>
 
-      {/* School & Session Settings */}
-      <div className="card-cassie overflow-hidden">
-        <button type="button" onClick={() => toggleSection('school')} className="w-full px-5 py-4 border-b flex items-center justify-between text-left" style={{ borderColor: '#e6e7ef' }}>
-          <div className="flex items-center gap-2">
-            <Building2 className="w-5 h-5" style={{ color: '#5556fd' }} />
-            <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>Informations de l'établissement</h6>
-          </div>
-          {openSections.school ? <ChevronUp className="w-4 h-4" style={{ color: '#8392a5' }} /> : <ChevronDown className="w-4 h-4" style={{ color: '#8392a5' }} />}
-        </button>
-        {openSections.school && <div className="p-5 space-y-4">
+      {/* ═══ Calculation Rules ═══ */}
+      <AdminSection
+        icon={<Scale className="w-5 h-5" style={{ color: '#5556fd' }} />}
+        title={`Règles de calcul — ${academicYear}–${parseInt(academicYear) + 1}`}
+        open={openSections.rules}
+        onToggle={() => toggleSection('rules')}
+      >
+        <div className="space-y-6">
           <p className="text-xs" style={{ color: '#8392a5' }}>
-            Ces informations apparaissent dans l'en-tête des fichiers exportés (Excel, PDF, Word).
+            Configurez les seuils de distinction, sanction et promotion pour l'année <strong>{academicYear}–{parseInt(academicYear) + 1}</strong>.
           </p>
+
+          {/* ── Distinction Thresholds ── */}
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#373857' }}>Nom de l'école</label>
-            <input
-              type="text"
-              value={schoolName}
-              onChange={e => { setSchoolName(e.target.value); setHasUnsavedChanges(true); }}
-              className="w-full text-sm border rounded px-3 py-2 focus:outline-none"
-              style={{ borderColor: '#e6e7ef', color: '#373857' }}
-              placeholder="Ex: ÉCOLE MULTINATIONALE SUPÉRIEURE DES POSTES D'ABIDJAN"
-            />
-          </div>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: '#373857' }}>Titre de la session</label>
-              <input
-                type="text"
-                value={sessionTitle}
-                onChange={e => { setSessionTitle(e.target.value); setHasUnsavedChanges(true); }}
-                className="w-full text-sm border rounded px-3 py-2 focus:outline-none"
-                style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                placeholder="Ex: Conseil de Classe — Semestre 1"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: '#373857' }}>Date de la session</label>
-              <input
-                type="text"
-                value={sessionDate}
-                onChange={e => { setSessionDate(e.target.value); setHasUnsavedChanges(true); }}
-                className="w-full text-sm border rounded px-3 py-2 focus:outline-none"
-                style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                placeholder="Ex: 15 Mars 2026"
-              />
-            </div>
-          </div>
-        </div>}
-      </div>
-
-      {/* Validation Rules Engine */}
-      <div className="card-cassie overflow-hidden">
-        <button type="button" onClick={() => toggleSection('rules')} className="w-full px-5 py-4 border-b flex items-center justify-between text-left" style={{ borderColor: '#e6e7ef' }}>
-          <div className="flex items-center gap-2">
-            <Scale className="w-5 h-5" style={{ color: '#5556fd' }} />
-            <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>Règles de validation</h6>
-          </div>
-          {openSections.rules ? <ChevronUp className="w-4 h-4" style={{ color: '#8392a5' }} /> : <ChevronDown className="w-4 h-4" style={{ color: '#8392a5' }} />}
-        </button>
-        {openSections.rules && <div className="p-5 space-y-6">
-          <p className="text-xs" style={{ color: '#8392a5' }}>
-            Configurez les seuils de validation des ECUE, UE et les règles de passage semestriel et annuel.
-            Ces règles s'appliquent à toutes les sessions.
-          </p>
-
-          {/* ECUE Rules */}
-          <div className="border rounded p-4 space-y-3" style={{ borderColor: '#e6e7ef' }}>
-            <h6 className="text-sm font-semibold" style={{ color: '#06072d' }}>Validation ECUE</h6>
-            <div className="flex items-center gap-4">
-              <label className="text-sm flex-1" style={{ color: '#575d78' }}>
-                Note minimale de validation
-              </label>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min={0}
-                  max={20}
-                  step={0.5}
-                  value={rules.ecue.passMark}
-                  onChange={e => {
-                    setRules({ ...rules, ecue: { ...rules.ecue, passMark: Number(e.target.value) } });
-                    setHasUnsavedChanges(true);
-                  }}
-                  className="w-20 text-sm text-center border rounded px-2 py-1.5 focus:outline-none"
-                  style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                />
-                <span className="text-sm" style={{ color: '#8392a5' }}>/20</span>
-              </div>
-            </div>
-            <p className="text-[11px]" style={{ color: '#c0ccda' }}>
-              Une ECUE est validée si sa moyenne est ≥ à ce seuil.
-            </p>
-          </div>
-
-          {/* UE Rules */}
-          <div className="border rounded p-4 space-y-3" style={{ borderColor: '#e6e7ef' }}>
-            <h6 className="text-sm font-semibold" style={{ color: '#06072d' }}>Validation UE</h6>
-
-            {/* Mode de validation */}
-            <div>
-              <label className="block text-sm mb-2" style={{ color: '#575d78' }}>Critère de validation</label>
-              <div className="flex flex-wrap gap-2">
-                {([
-                  ['grade',   'Note (moyenne \u2265 seuil)'],
-                  ['credits', 'Crédits obtenus \u2265 seuil'],
-                  ['both',    'Note ET Crédits'],
-                ] as [UEValidationMode, string][]).map(([val, label]) => (
-                  <button
-                    key={val}
-                    onClick={() => { setRules({ ...rules, ue: { ...rules.ue, validationMode: val } }); setHasUnsavedChanges(true); }}
-                    className="text-xs px-3 py-1.5 rounded border font-medium transition-colors"
-                    style={{
-                      background: (rules.ue.validationMode ?? 'grade') === val ? '#5556fd' : 'white',
-                      color: (rules.ue.validationMode ?? 'grade') === val ? 'white' : '#575d78',
-                      borderColor: (rules.ue.validationMode ?? 'grade') === val ? '#5556fd' : '#e6e7ef',
-                    }}
-                  >{label}</button>
-                ))}
-              </div>
-            </div>
-
-            {/* passMark — visible si mode inclut 'grade' */}
-            {((rules.ue.validationMode ?? 'grade') === 'grade' || rules.ue.validationMode === 'both') && (
-              <div className="flex items-center gap-4">
-                <label className="text-sm flex-1" style={{ color: '#575d78' }}>
-                  Note minimale de validation
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min={0}
-                    max={20}
-                    step={0.5}
-                    value={rules.ue.passMark}
-                    onChange={e => {
-                      setRules({ ...rules, ue: { ...rules.ue, passMark: Number(e.target.value) } });
-                      setHasUnsavedChanges(true);
-                    }}
-                    className="w-20 text-sm text-center border rounded px-2 py-1.5 focus:outline-none"
-                    style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                  />
-                  <span className="text-sm" style={{ color: '#8392a5' }}>/20</span>
-                </div>
-              </div>
-            )}
-
-            {/* minCredits — visible si mode inclut 'credits' */}
-            {(rules.ue.validationMode === 'credits' || rules.ue.validationMode === 'both') && (
-              <div className="flex items-center gap-4">
-                <label className="text-sm flex-1" style={{ color: '#575d78' }}>
-                  Crédits minimum obtenus dans l'UE
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <Hash className="w-4 h-4" style={{ color: '#8392a5' }} />
-                  <input
-                    type="number"
-                    min={0}
-                    max={60}
-                    step={1}
-                    value={rules.ue.minCredits ?? 0}
-                    onChange={e => {
-                      setRules({ ...rules, ue: { ...rules.ue, minCredits: Number(e.target.value) } });
-                      setHasUnsavedChanges(true);
-                    }}
-                    className="w-20 text-sm text-center border rounded px-2 py-1.5 focus:outline-none"
-                    style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                  />
-                  <span className="text-sm" style={{ color: '#8392a5' }}>crédits</span>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 mt-2">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rules.ue.capitalizeEcueCredits}
-                  onChange={e => {
-                    setRules({ ...rules, ue: { ...rules.ue, capitalizeEcueCredits: e.target.checked } });
-                    setHasUnsavedChanges(true);
-                  }}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 rounded-full peer
-                  peer-checked:after:translate-x-full after:content-['']
-                  after:absolute after:top-[2px] after:left-[2px]
-                  after:rounded-full after:h-4 after:w-4 after:transition-all
-                  peer-checked:bg-[#5556fd] bg-gray-300 after:bg-white" />
-              </label>
-              <span className="text-sm" style={{ color: '#575d78' }}>
-                Capitaliser les crédits ECUE individuellement
-              </span>
-            </div>
-            <p className="text-[11px]" style={{ color: '#c0ccda' }}>
-              Si activé, lorsqu'une UE n'est pas validée, les ECUE individuellement validées conservent leurs crédits.
-            </p>
-          </div>
-
-          {/* Semester Passage Rules */}
-          <div className="border rounded p-4 space-y-3" style={{ borderColor: '#e6e7ef' }}>
-            <h6 className="text-sm font-semibold" style={{ color: '#06072d' }}>Passage — Semestre</h6>
-
-            {/* Mode */}
-            <div>
-              <label className="block text-sm mb-2" style={{ color: '#575d78' }}>Mode de calcul du seuil AUTORISÉ</label>
-              <div className="flex gap-2">
-                {([
-                  ['ratio',    'Pourcentage des crédits'],
-                  ['absolute', 'Nombre de crédits fixe'],
-                ] as [CreditThresholdMode, string][]).map(([val, label]) => (
-                  <button
-                    key={val}
-                    onClick={() => { setRules({ ...rules, semester: { ...rules.semester, autoriseMode: val } }); setHasUnsavedChanges(true); }}
-                    className="text-xs px-3 py-1.5 rounded border font-medium transition-colors"
-                    style={{
-                      background: (rules.semester.autoriseMode ?? 'ratio') === val ? '#5556fd' : 'white',
-                      color: (rules.semester.autoriseMode ?? 'ratio') === val ? 'white' : '#575d78',
-                      borderColor: (rules.semester.autoriseMode ?? 'ratio') === val ? '#5556fd' : '#e6e7ef',
-                    }}
-                  >{label}</button>
-                ))}
-              </div>
-            </div>
-
-            {(rules.semester.autoriseMode ?? 'ratio') === 'ratio' ? (
-              <div className="flex items-center gap-4">
-                <label className="text-sm flex-1" style={{ color: '#575d78' }}>
-                  % minimum de crédits pour AUTORISÉ
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={Math.round(rules.semester.autoriseMinCreditsRatio * 100)}
-                    onChange={e => {
-                      setRules({ ...rules, semester: { ...rules.semester, autoriseMinCreditsRatio: Number(e.target.value) / 100 } });
-                      setHasUnsavedChanges(true);
-                    }}
-                    className="w-20 text-sm text-center border rounded px-2 py-1.5 focus:outline-none"
-                    style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                  />
-                  <span className="text-sm" style={{ color: '#8392a5' }}>%</span>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-4">
-                <label className="text-sm flex-1" style={{ color: '#575d78' }}>
-                  Nombre de crédits minimum pour AUTORISÉ
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <Hash className="w-4 h-4" style={{ color: '#8392a5' }} />
-                  <input
-                    type="number"
-                    min={0}
-                    max={200}
-                    step={1}
-                    value={rules.semester.autoriseMinCreditsAbsolute ?? 0}
-                    onChange={e => {
-                      setRules({ ...rules, semester: { ...rules.semester, autoriseMinCreditsAbsolute: Number(e.target.value) } });
-                      setHasUnsavedChanges(true);
-                    }}
-                    className="w-20 text-sm text-center border rounded px-2 py-1.5 focus:outline-none"
-                    style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                  />
-                  <span className="text-sm" style={{ color: '#8392a5' }}>crédits</span>
-                </div>
-              </div>
-            )}
-
-            <p className="text-[11px]" style={{ color: '#c0ccda' }}>
-              ADMIS = 100% des crédits · AUTORISÉ = ≥ ce seuil · AJOURNÉ = en dessous.
-            </p>
-          </div>
-
-          {/* Annual Passage Rules */}
-          <div className="border rounded p-4 space-y-3" style={{ borderColor: '#e6e7ef' }}>
-            <h6 className="text-sm font-semibold" style={{ color: '#06072d' }}>Passage — Annuel</h6>
-
-            {/* Mode */}
-            <div>
-              <label className="block text-sm mb-2" style={{ color: '#575d78' }}>Mode de calcul du seuil AUTORISÉ</label>
-              <div className="flex gap-2">
-                {([
-                  ['ratio',    'Pourcentage des crédits'],
-                  ['absolute', 'Nombre de crédits fixe'],
-                ] as [CreditThresholdMode, string][]).map(([val, label]) => (
-                  <button
-                    key={val}
-                    onClick={() => { setRules({ ...rules, annual: { ...rules.annual, autoriseMode: val } }); setHasUnsavedChanges(true); }}
-                    className="text-xs px-3 py-1.5 rounded border font-medium transition-colors"
-                    style={{
-                      background: (rules.annual.autoriseMode ?? 'ratio') === val ? '#5556fd' : 'white',
-                      color: (rules.annual.autoriseMode ?? 'ratio') === val ? 'white' : '#575d78',
-                      borderColor: (rules.annual.autoriseMode ?? 'ratio') === val ? '#5556fd' : '#e6e7ef',
-                    }}
-                  >{label}</button>
-                ))}
-              </div>
-            </div>
-
-            {(rules.annual.autoriseMode ?? 'ratio') === 'ratio' ? (
-              <div className="flex items-center gap-4">
-                <label className="text-sm flex-1" style={{ color: '#575d78' }}>
-                  % minimum de crédits pour AUTORISÉ
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={Math.round(rules.annual.autoriseMinCreditsRatio * 100)}
-                    onChange={e => {
-                      setRules({ ...rules, annual: { ...rules.annual, autoriseMinCreditsRatio: Number(e.target.value) / 100 } });
-                      setHasUnsavedChanges(true);
-                    }}
-                    className="w-20 text-sm text-center border rounded px-2 py-1.5 focus:outline-none"
-                    style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                  />
-                  <span className="text-sm" style={{ color: '#8392a5' }}>%</span>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-4">
-                <label className="text-sm flex-1" style={{ color: '#575d78' }}>
-                  Nombre de crédits minimum pour AUTORISÉ
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <Hash className="w-4 h-4" style={{ color: '#8392a5' }} />
-                  <input
-                    type="number"
-                    min={0}
-                    max={200}
-                    step={1}
-                    value={rules.annual.autoriseMinCreditsAbsolute ?? 0}
-                    onChange={e => {
-                      setRules({ ...rules, annual: { ...rules.annual, autoriseMinCreditsAbsolute: Number(e.target.value) } });
-                      setHasUnsavedChanges(true);
-                    }}
-                    className="w-20 text-sm text-center border rounded px-2 py-1.5 focus:outline-none"
-                    style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                  />
-                  <span className="text-sm" style={{ color: '#8392a5' }}>crédits</span>
-                </div>
-              </div>
-            )}
-
-            <p className="text-[11px]" style={{ color: '#c0ccda' }}>
-              Même logique que le semestre, appliquée au cumul annuel S1+S2.
-            </p>
-          </div>
-
-          {/* Repêchage Rules */}
-          <div className="border rounded p-4 space-y-3" style={{ borderColor: '#e6e7ef' }}>
-            <h6 className="text-sm font-semibold" style={{ color: '#06072d' }}>Rattrapage (Repêchage)</h6>
-            <div className="flex items-center gap-3">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rules.repechage.enabled}
-                  onChange={e => {
-                    setRules({ ...rules, repechage: { ...rules.repechage, enabled: e.target.checked } });
-                    setHasUnsavedChanges(true);
-                  }}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 rounded-full peer
-                  peer-checked:after:translate-x-full after:content-['']
-                  after:absolute after:top-[2px] after:left-[2px]
-                  after:rounded-full after:h-4 after:w-4 after:transition-all
-                  peer-checked:bg-[#5556fd] bg-gray-300 after:bg-white" />
-              </label>
-              <span className="text-sm" style={{ color: '#575d78' }}>
-                Activer la règle de repêchage
-              </span>
-            </div>
-            {rules.repechage.enabled && (
-              <div className="space-y-3 mt-2 pl-1">
-                <div className="flex items-center gap-4">
-                  <label className="text-sm flex-1" style={{ color: '#575d78' }}>
-                    Moyenne UE minimale
-                  </label>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      min={0}
-                      max={20}
-                      step={0.5}
-                      value={rules.repechage.minUEAverage}
-                      onChange={e => {
-                        setRules({ ...rules, repechage: { ...rules.repechage, minUEAverage: Number(e.target.value) } });
-                        setHasUnsavedChanges(true);
-                      }}
-                      className="w-20 text-sm text-center border rounded px-2 py-1.5 focus:outline-none"
-                      style={{ borderColor: '#e6e7ef', color: '#373857' }}
+            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#06072d' }}>
+              <GraduationCap className="w-4 h-4" style={{ color: '#5556fd' }} />
+              Seuils de distinction (par trimestre)
+            </h4>
+            <div className="grid sm:grid-cols-2 gap-4">
+              {(['7-10', '11-13'] as const).map(group => (
+                <div key={group} className="p-3 rounded border" style={{ borderColor: '#e6e7ef', background: '#f9f9fd' }}>
+                  <div className="text-xs font-medium mb-3" style={{ color: '#575d78' }}>
+                    {group === '7-10' ? 'Collège (6ème – 3ème)' : 'Lycée (2nde – Tle)'}
+                  </div>
+                  <div className="space-y-2">
+                    <ThresholdInput
+                      label="Tableau d'Honneur (TH)"
+                      value={rulesConfig.termDistinction[group].thMin}
+                      onChange={v => updateDistinctionThreshold(group, 'thMin', v)}
+                      color="#3b82f6"
                     />
-                    <span className="text-sm" style={{ color: '#8392a5' }}>/20</span>
+                    <ThresholdInput
+                      label="Tableau d'Excellence (THE)"
+                      value={rulesConfig.termDistinction[group].theMin}
+                      onChange={v => updateDistinctionThreshold(group, 'theMin', v)}
+                      color="#8b5cf6"
+                    />
+                    <ThresholdInput
+                      label="Félicitations (THF)"
+                      value={rulesConfig.termDistinction[group].thfMin}
+                      onChange={v => updateDistinctionThreshold(group, 'thfMin', v)}
+                      color="#eab308"
+                    />
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <label className="text-sm flex-1" style={{ color: '#575d78' }}>
-                    Nombre max d'UE échouées
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={rules.repechage.maxFailedUEs}
-                    onChange={e => {
-                      setRules({ ...rules, repechage: { ...rules.repechage, maxFailedUEs: Number(e.target.value) } });
-                      setHasUnsavedChanges(true);
-                    }}
-                    className="w-20 text-sm text-center border rounded px-2 py-1.5 focus:outline-none"
-                    style={{ borderColor: '#e6e7ef', color: '#373857' }}
-                  />
-                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Sanction Thresholds ── */}
+          <div>
+            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#06072d' }}>
+              <Scale className="w-4 h-4" style={{ color: '#ef4444' }} />
+              Seuils de sanction
+            </h4>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <ThresholdInput
+                label="Blâme Travail Insuffisant (BTI)"
+                hint="Moy. < seuil → BTI"
+                value={rulesConfig.termSanction.btiMax}
+                onChange={v => updateSanctionThreshold('btiMax', v)}
+                color="#ef4444"
+              />
+              <ThresholdInput
+                label="Avertissement Travail (AVT)"
+                hint="Moy. < seuil → AVT"
+                value={rulesConfig.termSanction.avtMax}
+                onChange={v => updateSanctionThreshold('avtMax', v)}
+                color="#f97316"
+              />
+              <ThresholdInput
+                label="Blâme Mauvaise Conduite (BMC)"
+                hint="Note conduite < seuil → BMC"
+                value={rulesConfig.termSanction.bmcMax}
+                onChange={v => updateSanctionThreshold('bmcMax', v)}
+                color="#ef4444"
+              />
+              <ThresholdInput
+                label="Avert. Mauvaise Conduite (AMC)"
+                hint="Note conduite < seuil → AMC"
+                value={rulesConfig.termSanction.amcMax}
+                onChange={v => updateSanctionThreshold('amcMax', v)}
+                color="#f97316"
+              />
+            </div>
+          </div>
+
+          {/* ── Promotion Thresholds ── */}
+          <div>
+            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#06072d' }}>
+              <Calculator className="w-4 h-4" style={{ color: '#22c55e' }} />
+              Seuils de promotion (fin d'année)
+            </h4>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <ThresholdInput
+                label="Admis (non redoublant)"
+                hint="Moy. annuelle ≥ seuil → ADMIS"
+                value={rulesConfig.promotion.promotionMin}
+                onChange={v => updatePromotionThreshold('promotionMin', v)}
+                color="#22c55e"
+              />
+              <ThresholdInput
+                label="Redouble (non redoublant)"
+                hint="Moy. ≥ seuil → REDOUBLE"
+                value={rulesConfig.promotion.retainedMin}
+                onChange={v => updatePromotionThreshold('retainedMin', v)}
+                color="#eab308"
+              />
+              <ThresholdInput
+                label="Admis (redoublant)"
+                hint="Redoublant: moy. ≥ seuil → ADMIS"
+                value={rulesConfig.promotion.repeatingPromotionMin}
+                onChange={v => updatePromotionThreshold('repeatingPromotionMin', v)}
+                color="#3b82f6"
+              />
+            </div>
+
+            {/* Rule flags */}
+            <div className="mt-4 space-y-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rulesConfig.useNonBonusForDistinctionCheck}
+                  onChange={e => { setRulesConfig(prev => ({ ...prev, useNonBonusForDistinctionCheck: e.target.checked })); setHasUnsavedChanges(true); }}
+                  className="rounded"
+                />
+                <span style={{ color: '#373857' }}>Utiliser les matières non-bonus pour la vérification des distinctions</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rulesConfig.checkFrenchCompositionForDistinction}
+                  onChange={e => { setRulesConfig(prev => ({ ...prev, checkFrenchCompositionForDistinction: e.target.checked })); setHasUnsavedChanges(true); }}
+                  className="rounded"
+                />
+                <span style={{ color: '#373857' }}>Vérifier la composition de Français pour les distinctions</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rulesConfig.terminalGradePromotion.repeatingAutoExpelled}
+                  onChange={e => {
+                    setRulesConfig(prev => ({
+                      ...prev,
+                      terminalGradePromotion: { ...prev.terminalGradePromotion, repeatingAutoExpelled: e.target.checked },
+                    }));
+                    setHasUnsavedChanges(true);
+                  }}
+                  className="rounded"
+                />
+                <span style={{ color: '#373857' }}>Redoublant en classe terminale → exclusion automatique</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Weighted Average Formula */}
+          <div className="p-4 rounded" style={{ background: '#f0f0ff', border: '1px solid #d4d4ff' }}>
+            <h4 className="text-sm font-semibold mb-2" style={{ color: '#06072d' }}>Formule de calcul</h4>
+            <div className="text-xs space-y-1" style={{ color: '#575d78' }}>
+              <p><strong>Moyenne par matière (trimestre)</strong> = Moyenne simple des évaluations (normalisées /20)</p>
+              <p><strong>Moyenne pondérée (trimestre)</strong> = Σ(moy. matière × coefficient) / Σ(coefficients)</p>
+              <p><strong>Moyenne annuelle</strong> = Moyenne des moyennes pondérées des trimestres disponibles</p>
+              <p><strong>Distinction</strong> = basée sur la moyenne pondérée + vérification des matières en échec</p>
+            </div>
+          </div>
+        </div>
+      </AdminSection>
+
+      {/* ═══ Logo ═══ */}
+      <AdminSection
+        icon={<Image className="w-5 h-5" style={{ color: '#5556fd' }} />}
+        title="Logo de l'établissement"
+        open={openSections.logo}
+        onToggle={() => toggleSection('logo')}
+      >
+        <div className="space-y-4">
+          {logoPreview && (
+            <div className="flex items-center gap-4 p-4 border rounded" style={{ borderColor: '#e6e7ef', background: '#f9f9fd' }}>
+              <img src={logoPreview} alt="Logo" className="h-12 w-auto object-contain" />
+              <div className="flex-1">
+                <p className="text-sm font-medium" style={{ color: '#06072d' }}>Logo actuel</p>
               </div>
-            )}
-            <p className="text-[11px]" style={{ color: '#c0ccda' }}>
-              Un étudiant AUTORISÉ peut bénéficier du repêchage s'il a au plus N UE échouées et que
-              la moyenne de l'UE échouée est ≥ au seuil configuré.
-            </p>
+              <button onClick={handleRemoveLogo} className="p-2 rounded hover:bg-red-50" style={{ color: '#dc3545' }}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-4">
+            <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" id="global-logo-upload" />
+            <label
+              htmlFor="global-logo-upload"
+              className="inline-flex items-center gap-2 px-4 py-2 border rounded cursor-pointer hover:bg-[#f0f0ff]"
+              style={{ borderColor: '#e6e7ef', color: '#575d78' }}
+            >
+              <Image className="w-4 h-4" />
+              {logoPreview ? 'Changer le logo' : 'Choisir un logo'}
+            </label>
+            {logoFile && <span className="text-sm" style={{ color: '#8392a5' }}>{logoFile.name}</span>}
           </div>
+        </div>
+      </AdminSection>
 
-          {/* Reset to defaults */}
-          <button
-            onClick={() => {
-              setRules(DEFAULT_VALIDATION_RULES);
-              setHasUnsavedChanges(true);
-            }}
-            className="text-sm font-medium px-3 py-1.5 rounded border transition-colors hover:bg-gray-50"
-            style={{ borderColor: '#e6e7ef', color: '#8392a5' }}
-          >
-            Réinitialiser les valeurs par défaut
-          </button>
-        </div>}
-      </div>
-
-      {/* Student Photos */}
-      <div className="card-cassie overflow-hidden">
-        <button type="button" onClick={() => toggleSection('photos')} className="w-full px-5 py-4 border-b flex items-center justify-between text-left" style={{ borderColor: '#e6e7ef' }}>
-          <div className="flex items-center gap-2">
-            <FolderOpen className="w-5 h-5" style={{ color: '#5556fd' }} />
-            <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>Photos des étudiants</h6>
-          </div>
-          {openSections.photos ? <ChevronUp className="w-4 h-4" style={{ color: '#8392a5' }} /> : <ChevronDown className="w-4 h-4" style={{ color: '#8392a5' }} />}
-        </button>
-        {openSections.photos && <div className="p-5 space-y-4">
+      {/* ═══ Photos ═══ */}
+      <AdminSection
+        icon={<UsersIcon className="w-5 h-5" style={{ color: '#5556fd' }} />}
+        title={`Photos des élèves (${photoCount})`}
+        open={openSections.photos}
+        onToggle={() => toggleSection('photos')}
+      >
+        <div className="space-y-4">
           <p className="text-xs" style={{ color: '#8392a5' }}>
-            Chargez un fichier ZIP contenant les photos des étudiants. Chaque photo doit être nommée
-            avec le numéro matricule de l'étudiant (ex&nbsp;: <code className="px-1 rounded" style={{ background: '#f3f6f9', color: '#5556fd' }}>25FS0060S.jpg</code>).
-            Les photos seront affichées dans la fiche de chaque étudiant.
+            Importez un fichier ZIP contenant les photos des élèves. Le nom doit correspondre au matricule.
           </p>
 
-          {/* Status */}
-          {photoCount > 0 && (
-            <div className="flex items-center justify-between p-3 rounded border" style={{ background: '#e6f9ef', borderColor: '#c3e6cb' }}>
-              <div className="flex items-center gap-2 text-sm" style={{ color: '#1a8a4d' }}>
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                <span>
-                  <strong>{photoCount}</strong> photo{photoCount > 1 ? 's' : ''} chargée{photoCount > 1 ? 's' : ''}
-                </span>
-              </div>
-              <button
-                onClick={() => { setPhotos({}); setZipResult(null); }}
-                className="text-xs font-medium px-2 py-1 rounded transition-colors hover:bg-red-50"
-                style={{ color: '#dc3545' }}
-              >
-                Tout supprimer
+          {zipResult && (
+            <div className="p-3 rounded border text-sm" style={{
+              background: zipResult.errors.length > 0 ? '#fff3cd' : '#e6f9ef',
+              borderColor: zipResult.errors.length > 0 ? '#ffc107' : '#c3e6cb',
+              color: zipResult.errors.length > 0 ? '#856404' : '#1a8a4d',
+            }}>
+              {zipResult.added} photo(s) importée(s)
+              {zipResult.errors.length > 0 && (
+                <div className="mt-1 text-xs">{zipResult.errors.slice(0, 5).join(', ')}</div>
+              )}
+            </div>
+          )}
+
+          {pendingPhotos && (
+            <div className="flex gap-2">
+              <button onClick={handleConfirmPhotoImport} className="px-3 py-1.5 text-sm font-medium text-white rounded" style={{ background: '#22c55e' }}>
+                Confirmer l'import
+              </button>
+              <button onClick={() => { setPendingPhotos(null); setZipResult(null); }} className="px-3 py-1.5 text-sm rounded border" style={{ borderColor: '#e6e7ef', color: '#575d78' }}>
+                Annuler
               </button>
             </div>
           )}
 
-          {pendingPhotos && zipResult?.added ? (
-            <div className="flex items-center justify-between gap-3 p-3 rounded border" style={{ background: '#fff8e8', borderColor: '#f7d58b' }}>
-              <div className="text-sm" style={{ color: '#9a6700' }}>
-                <strong>{zipResult.added}</strong> photo{zipResult.added > 1 ? 's' : ''} pr\u00eate{zipResult.added > 1 ? 's' : ''} \u00e0 \u00eatre enregistr\u00e9e{zipResult.added > 1 ? 's' : ''}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCancelPhotoImport}
-                  className="text-xs font-medium px-3 py-1.5 rounded border transition-colors hover:bg-white"
-                  style={{ borderColor: '#f7d58b', color: '#9a6700' }}
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={handleConfirmPhotoImport}
-                  className="text-xs font-medium px-3 py-1.5 rounded transition-colors"
-                  style={{ background: '#5556fd', color: 'white' }}
-                >
-                  Confirmer l'import
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Result feedback */}
-          {zipResult && (
-            <div className="space-y-1">
-              {zipResult.added > 0 && (
-                <div className="text-sm px-3 py-2 rounded" style={{ background: pendingPhotos ? '#fff8e8' : '#e6f9ef', color: pendingPhotos ? '#9a6700' : '#1a8a4d' }}>
-                  {pendingPhotos ? 'En attente' : '✓'} {zipResult.added} photo{zipResult.added > 1 ? 's' : ''} {pendingPhotos ? 'extraite' : 'importée'}{zipResult.added > 1 ? 's' : ''} avec succès
-                </div>
-              )}
-              {zipResult.errors.map((err, i) => (
-                <div key={i} className="text-xs px-3 py-2 rounded" style={{ background: '#fce8ea', color: '#dc3545' }}>
-                  {err}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Drop zone */}
           <label
             className="block border-2 border-dashed rounded p-5 cursor-pointer transition-all hover:border-[#5556fd] hover:bg-[#f0f0ff]"
-            style={{ borderColor: zipLoading ? '#5556fd' : '#e6e7ef', background: zipLoading ? '#f0f0ff' : 'white' }}
+            style={{ borderColor: '#e6e7ef' }}
             onDragOver={e => e.preventDefault()}
             onDrop={handleZipUpload}
           >
-            <input
-              type="file"
-              accept=".zip"
-              className="hidden"
-              onChange={handleZipUpload}
-              disabled={zipLoading}
-            />
+            <input type="file" accept=".zip" className="hidden" onChange={handleZipUpload} />
             <div className="flex items-center gap-4">
-              {zipLoading
-                ? <Loader2 className="w-6 h-6 animate-spin" style={{ color: '#5556fd' }} />
-                : <FolderOpen className="w-6 h-6" style={{ color: '#c0ccda' }} />
-              }
-              <div className="flex-1">
-                <p className="font-medium text-sm" style={{ color: '#06072d' }}>
-                  {zipLoading ? 'Extraction en cours…' : 'Glissez ou cliquez pour charger un fichier ZIP'}
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: '#8392a5' }}>
-                  Formats acceptés : JPG, PNG, WebP, GIF — nommés par matricule étudiant
-                </p>
+              {zipLoading ? (
+                <Loader2 className="w-6 h-6 animate-spin" style={{ color: '#5556fd' }} />
+              ) : (
+                <UsersIcon className="w-6 h-6" style={{ color: '#c0ccda' }} />
+              )}
+              <div>
+                <p className="font-medium text-sm" style={{ color: '#06072d' }}>Importer des photos (ZIP)</p>
+                <p className="text-xs mt-0.5" style={{ color: '#8392a5' }}>Fichier ZIP contenant les photos des élèves</p>
               </div>
             </div>
           </label>
-        </div>}
-      </div>
-
-      {/* User Management */}
-      <div className="card-cassie overflow-hidden">
-        <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#e6e7ef' }}>
-          <div className="flex items-center gap-2">
-            <UsersIcon className="w-5 h-5" style={{ color: '#5556fd' }} />
-            <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>Gestion des utilisateurs</h6>
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#f0f0ff', color: '#5556fd' }}>
-              {users.length}
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            <button onClick={loadUsers} disabled={usersLoading} className="p-1.5 rounded hover:bg-[#f0f0ff] transition-colors" style={{ color: '#8392a5' }} title="Rafraîchir">
-              <RefreshIcon className={`w-4 h-4 ${usersLoading ? 'animate-spin' : ''}`} />
-            </button>
-            <button type="button" onClick={() => toggleSection('users')} className="p-1.5 rounded hover:bg-[#f0f0ff] transition-colors" style={{ color: '#8392a5' }} title={openSections.users ? 'Réduire' : 'Développer'}>
-              {openSections.users ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
-          </div>
         </div>
-        {openSections.users && <div className="p-5 space-y-5">
-          <p className="text-xs" style={{ color: '#8392a5' }}>
-            Gérez les comptes utilisateurs, validez les inscriptions et attribuez les rôles. Les utilisateurs avec le rôle <strong>Admin</strong> ont accès aux paramètres globaux.
-          </p>
-          {userActionError && (
-            <p className="text-xs px-3 py-2 rounded" style={{ background: '#fce8ea', color: '#dc3545' }}>{userActionError}</p>
-          )}
+      </AdminSection>
 
-          {/* Invite form */}
-          <div className="border rounded p-4 space-y-3" style={{ borderColor: '#e6e7ef' }}>
-            <h6 className="text-sm font-semibold flex items-center gap-2" style={{ color: '#06072d' }}>
-              <UserPlus className="w-4 h-4" style={{ color: '#5556fd' }} />
-              Inviter un utilisateur
-            </h6>
-            <form onSubmit={handleInvite} className="flex flex-wrap gap-2">
+      {/* ═══ Users ═══ */}
+      <AdminSection
+        icon={<ShieldCheckIcon className="w-5 h-5" style={{ color: '#5556fd' }} />}
+        title={`Utilisateurs (${users.length})`}
+        open={openSections.users}
+        onToggle={() => toggleSection('users')}
+      >
+        <div className="space-y-4">
+          {/* Invite */}
+          <form onSubmit={handleInvite} className="flex flex-wrap gap-2 items-end">
+            <div className="flex-1 min-w-[200px]">
+              <label className="block text-xs font-medium mb-1" style={{ color: '#373857' }}>Email</label>
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={e => setInviteEmail(e.target.value)}
+                placeholder="prof@ecole.ci"
+                className="w-full text-sm border rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5556fd]"
+                style={{ borderColor: '#e6e7ef' }}
+              />
+            </div>
+            <div className="min-w-[150px]">
+              <label className="block text-xs font-medium mb-1" style={{ color: '#373857' }}>Nom</label>
               <input
                 type="text"
                 value={inviteName}
                 onChange={e => setInviteName(e.target.value)}
                 placeholder="Nom complet"
-                className="flex-1 min-w-[140px] px-3 py-2 rounded border text-sm outline-none"
-                style={{ borderColor: '#e6e7ef', color: '#06072d' }}
+                className="w-full text-sm border rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5556fd]"
+                style={{ borderColor: '#e6e7ef' }}
               />
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={e => setInviteEmail(e.target.value)}
-                placeholder="Adresse email"
-                required
-                className="flex-1 min-w-[180px] px-3 py-2 rounded border text-sm outline-none"
-                style={{ borderColor: '#e6e7ef', color: '#06072d' }}
-              />
-              <button
-                type="submit"
-                disabled={inviteLoading || !inviteEmail.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-                style={{ background: '#5556fd' }}
-              >
-                {inviteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                Inviter
-              </button>
-            </form>
-            {inviteError && (
-              <p className="text-xs px-3 py-2 rounded" style={{ background: '#fce8ea', color: '#dc3545' }}>{inviteError}</p>
-            )}
-            {inviteSuccess && (
-              <p className="text-xs px-3 py-2 rounded" style={{ background: '#e6f9ef', color: '#1a8a4d' }}>{inviteSuccess}</p>
-            )}
-          </div>
+            </div>
+            <button
+              type="submit"
+              disabled={inviteLoading || !inviteEmail.trim()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white rounded disabled:opacity-50"
+              style={{ background: '#5556fd' }}
+            >
+              {inviteLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+              Inviter
+            </button>
+          </form>
+          {inviteError && <p className="text-xs" style={{ color: '#dc3545' }}>{inviteError}</p>}
+          {inviteSuccess && <p className="text-xs" style={{ color: '#22c55e' }}>{inviteSuccess}</p>}
+          {userActionError && <p className="text-xs" style={{ color: '#dc3545' }}>{userActionError}</p>}
 
-          {/* Users list */}
-          {usersLoading ? (
-            <div className="flex items-center justify-center py-8 gap-2" style={{ color: '#8392a5' }}>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span className="text-sm">Chargement…</span>
-            </div>
-          ) : users.length === 0 ? (
-            <p className="text-sm text-center py-6" style={{ color: '#c0ccda' }}>Aucun utilisateur enregistré</p>
-          ) : (
-            <div className="space-y-2">
-              {users.map(u => {
-                const statusColor: Record<UserStatus, { bg: string; text: string; label: string }> = {
-                  active:    { bg: '#e6f9ef', text: '#1a8a4d', label: 'Actif' },
-                  pending:   { bg: '#fff8e1', text: '#9a6700', label: 'En attente' },
-                  suspended: { bg: '#fce8ea', text: '#dc3545', label: 'Suspendu' },
-                };
-                const sc = statusColor[u.status] ?? statusColor.active;
-                const initials = (u.displayName || u.email).slice(0, 2).toUpperCase();
-                return (
-                  <div key={u.uid} className="flex items-center gap-3 px-4 py-3 rounded border" style={{ borderColor: '#e6e7ef', background: '#f9f9fd' }}>
-                    {/* Avatar */}
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold text-white overflow-hidden" style={{ background: '#5556fd' }}>
-                      {u.photoURL
-                        ? <img src={u.photoURL} alt="" className="w-full h-full object-cover" />
-                        : initials}
-                    </div>
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" style={{ color: '#06072d' }}>{u.displayName || '—'}</p>
-                      <p className="text-xs truncate" style={{ color: '#8392a5' }}>{u.email}</p>
-                    </div>
-                    {/* Status badge */}
-                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: sc.bg, color: sc.text }}>
-                      {sc.label}
-                    </span>
-                    {/* Role selector */}
-                    <select
-                      value={u.role}
-                      onChange={e => handleRoleChange(u.uid, e.target.value as AppRole)}
-                      className="text-xs px-2 py-1 rounded border outline-none flex-shrink-0"
-                      style={{ borderColor: '#e6e7ef', color: '#575d78', background: 'white' }}
-                    >
-                      <option value="user">Utilisateur</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                    {/* Status actions */}
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {u.status === 'pending' && (
-                        <button
-                          onClick={() => handleStatusChange(u.uid, 'active')}
-                          className="p-1.5 rounded hover:bg-green-50 transition-colors"
-                          style={{ color: '#22d273' }}
-                          title="Valider l'inscription"
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                        </button>
-                      )}
-                      {u.status === 'active' && (
-                        <button
-                          onClick={() => handleStatusChange(u.uid, 'suspended')}
-                          className="p-1.5 rounded hover:bg-red-50 transition-colors"
-                          style={{ color: '#dc3545' }}
-                          title="Suspendre le compte"
-                        >
-                          <UserX className="w-4 h-4" />
-                        </button>
-                      )}
-                      {u.status === 'suspended' && (
-                        <button
-                          onClick={() => handleStatusChange(u.uid, 'active')}
-                          className="p-1.5 rounded hover:bg-green-50 transition-colors"
-                          style={{ color: '#22d273' }}
-                          title="Réactiver le compte"
-                        >
-                          <ShieldCheckIcon className="w-4 h-4" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleDeleteUser(u)}
-                        className="p-1.5 rounded hover:bg-red-50 transition-colors"
-                        style={{ color: '#dc3545' }}
-                        title="Supprimer le compte"
-                        disabled={u.uid === currentUser?.uid}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>}
+          {/* User list */}
+          <div className="divide-y" style={{ borderColor: '#e6e7ef' }}>
+            {usersLoading ? (
+              <div className="py-4 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto" style={{ color: '#5556fd' }} /></div>
+            ) : users.length === 0 ? (
+              <p className="py-4 text-sm text-center" style={{ color: '#8392a5' }}>Aucun utilisateur</p>
+            ) : users.map(u => (
+              <div key={u.uid} className="flex items-center gap-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: '#06072d' }}>{u.displayName || u.email}</p>
+                  <p className="text-xs truncate" style={{ color: '#8392a5' }}>{u.email}</p>
+                </div>
+                <select
+                  value={u.role || 'user'}
+                  onChange={e => handleRoleChange(u.uid, e.target.value as AppRole)}
+                  disabled={u.uid === currentUser?.uid}
+                  className="text-xs border rounded px-2 py-1"
+                  style={{ borderColor: '#e6e7ef' }}
+                >
+                  <option value="user">Utilisateur</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <select
+                  value={u.status || 'active'}
+                  onChange={e => handleStatusChange(u.uid, e.target.value as UserStatus)}
+                  disabled={u.uid === currentUser?.uid}
+                  className="text-xs border rounded px-2 py-1"
+                  style={{ borderColor: '#e6e7ef' }}
+                >
+                  <option value="active">Actif</option>
+                  <option value="suspended">Suspendu</option>
+                  <option value="pending">En attente</option>
+                </select>
+                {u.uid !== currentUser?.uid && (
+                  <button
+                    onClick={() => handleDeleteUser(u)}
+                    className="p-1 rounded hover:bg-red-50"
+                    style={{ color: '#dc3545' }}
+                    title="Supprimer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={loadUsers}
+            disabled={usersLoading}
+            className="flex items-center gap-1.5 text-xs font-medium"
+            style={{ color: '#5556fd' }}
+          >
+            <RefreshIcon className="w-3.5 h-3.5" /> Rafraîchir
+          </button>
+        </div>
+      </AdminSection>
+    </div>
+  );
+}
+
+// ─── Helper Components ──────────────────────────────────────────────────────
+
+function AdminSection({ icon, title, open, onToggle, children }: {
+  icon: React.ReactNode;
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="card-cassie overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full px-5 py-4 border-b flex items-center justify-between text-left"
+        style={{ borderColor: '#e6e7ef' }}
+      >
+        <div className="flex items-center gap-2">
+          {icon}
+          <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>{title}</h6>
+        </div>
+        {open ? <ChevronUp className="w-4 h-4" style={{ color: '#8392a5' }} /> : <ChevronDown className="w-4 h-4" style={{ color: '#8392a5' }} />}
+      </button>
+      {open && <div className="p-5">{children}</div>}
+    </div>
+  );
+}
+
+function ThresholdInput({ label, hint, value, onChange, color }: {
+  label: string;
+  hint?: string;
+  value: number;
+  onChange: (v: number) => void;
+  color: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-xs font-medium" style={{ color: '#373857' }}>{label}</label>
+        <span className="text-xs font-bold" style={{ color }}>{value}</span>
       </div>
+      {hint && <p className="text-[10px] mb-1" style={{ color: '#8392a5' }}>{hint}</p>}
+      <input
+        type="range"
+        min="0"
+        max="20"
+        step="0.5"
+        value={value}
+        onChange={e => onChange(parseFloat(e.target.value))}
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+        style={{ accentColor: color }}
+      />
     </div>
   );
 }

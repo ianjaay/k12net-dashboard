@@ -3,6 +3,19 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
+/**
+ * K12net Dashboard — New Firebase project configuration.
+ *
+ * Create a new Firebase project at https://console.firebase.google.com
+ * and set these environment variables in your .env file:
+ *
+ *   VITE_K12_FIREBASE_API_KEY=...
+ *   VITE_K12_FIREBASE_AUTH_DOMAIN=...
+ *   VITE_K12_FIREBASE_PROJECT_ID=...
+ *   VITE_K12_FIREBASE_STORAGE_BUCKET=...
+ *   VITE_K12_FIREBASE_MESSAGING_SENDER_ID=...
+ *   VITE_K12_FIREBASE_APP_ID=...
+ */
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_K12_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_K12_FIREBASE_AUTH_DOMAIN,
