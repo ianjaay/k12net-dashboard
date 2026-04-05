@@ -12,6 +12,7 @@ import AdminRoute from './components/workspace/AdminRoute';
 import GlobalAdminPage from './components/workspace/GlobalAdminPage';
 import ReportsRoute from './components/workspace/ReportsRoute';
 import VersionHistory from './components/workspace/VersionHistory';
+import MultiLevelRoute from './components/multilevel/MultiLevelRoute';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -20,6 +21,7 @@ export const router = createBrowserRouter([
     element: <ProtectedRoute />,
     children: [
       { path: '/admin', element: <GlobalAdminPage /> },
+      { path: '/multilevel', element: <MultiLevelRoute /> },
       { path: '/sessions', element: <SessionList /> },
       {
         path: '/sessions/:id',
