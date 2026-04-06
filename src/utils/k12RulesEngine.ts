@@ -471,6 +471,7 @@ export interface K12ClassStats {
   highestAverage: number | null;
   lowestAverage: number | null;
   termStats: Record<TermId, TermStats>;
+  annualStats: TermStats;
 }
 
 export interface TermStats {
@@ -510,6 +511,8 @@ export function computeClassStats(students: K12Student[]): K12ClassStats {
     T3: computeTermStats(students, 'T3'),
   };
 
+  const annualStats = computeAnnualStats(students);
+
   return {
     totalStudents: total,
     promoted,
@@ -522,6 +525,7 @@ export function computeClassStats(students: K12Student[]): K12ClassStats {
     highestAverage: yearAverages.length > 0 ? Math.max(...yearAverages) : null,
     lowestAverage: yearAverages.length > 0 ? Math.min(...yearAverages) : null,
     termStats,
+    annualStats,
   };
 }
 
@@ -541,6 +545,74 @@ function computeTermStats(students: K12Student[], termId: TermId): TermStats {
     }
     if (tr.sanction && tr.sanction in sanctions) {
       sanctions[tr.sanction as keyof typeof sanctions]++;
+    }
+  }
+
+  return {
+    totalStudents: students.length,
+    averageGrade: averages.length > 0
+      ? averages.reduce((a, b) => a + b, 0) / averages.length
+      : null,
+    distinctions,
+    sanctions,
+    exempt,
+  };
+}
+
+/**
+ * Compute annual stats: distinctions and sanctions based on each student's yearAverage.
+ * Uses the same thresholds as term computation, applied to the annual average.
+ * "Reserve" is set if ANY term had a reserve distinction.
+ */
+function computeAnnualStats(students: K12Student[]): TermStats {
+  const distinctions = { TH: 0, THR: 0, THE: 0, THER: 0, THF: 0, THFR: 0 };
+  const sanctions = { BTI: 0, AVT: 0, BMC: 0, AMC: 0 };
+  let exempt = 0;
+  const averages: number[] = [];
+  const config = RULES_2024;
+
+  for (const s of students) {
+    const yr = s.yearResult;
+    if (!yr || yr.yearAverage === null) continue;
+
+    const avg = yr.yearAverage;
+    averages.push(avg);
+
+    // Distinction based on yearAverage
+    const group = getGradeLevelGroup(s.gradeLevel);
+    const thresholds = config.termDistinction[group];
+    const thMax = thresholds.thMax ?? thresholds.theMin;
+    const theMax = thresholds.theMax ?? thresholds.thfMin;
+
+    // Check reserve: if any term had a reserve distinction
+    const hasReserve = yr.termResults.some(tr =>
+      tr.distinction === 'THR' || tr.distinction === 'THER' || tr.distinction === 'THFR'
+    );
+
+    if (avg >= thresholds.thfMin) {
+      distinctions[hasReserve ? 'THFR' : 'THF']++;
+    } else if (avg >= thresholds.theMin && avg < theMax) {
+      distinctions[hasReserve ? 'THER' : 'THE']++;
+    } else if (avg >= thresholds.thMin && avg < thMax) {
+      distinctions[hasReserve ? 'THR' : 'TH']++;
+    }
+
+    // Sanction based on yearAverage
+    const sThresholds = config.termSanction;
+    if (avg < sThresholds.btiMax) {
+      sanctions.BTI++;
+    } else if (avg < sThresholds.avtMax) {
+      sanctions.AVT++;
+    } else {
+      // BMC/AMC: check behavioral across terms
+      const hasBehavioralIssue = yr.termResults.some(tr =>
+        tr.sanction === 'BMC' || tr.sanction === 'AMC'
+      );
+      if (hasBehavioralIssue) {
+        const bmcCount = yr.termResults.filter(tr => tr.sanction === 'BMC').length;
+        if (bmcCount > 0) sanctions.BMC++;
+        else sanctions.AMC++;
+      }
     }
   }
 
