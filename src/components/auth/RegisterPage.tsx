@@ -1,14 +1,19 @@
 import { useState, type FormEvent } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from 'react-i18next';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Mail } from 'lucide-react';
 
 export default function RegisterPage() {
   const { user, register, loginGoogle, loginMicrosoft } = useAuth();
   const { t } = useTranslation();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [searchParams] = useSearchParams();
+  const inviteEmail = searchParams.get('email') ?? '';
+  const inviteName = searchParams.get('name') ?? '';
+  const isInvite = !!inviteEmail;
+
+  const [name, setName] = useState(inviteName);
+  const [email, setEmail] = useState(inviteEmail);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -62,6 +67,13 @@ export default function RegisterPage() {
 
         <div className="card-cassie p-8">
           <h2 className="text-lg font-semibold mb-6" style={{ color: '#06072d' }}>{t('auth.register.title')}</h2>
+
+          {isInvite && (
+            <div className="mb-4 p-3 rounded flex items-center gap-2 text-sm" style={{ background: '#f0f0ff', color: '#5556fd' }}>
+              <Mail className="w-4 h-4 shrink-0" />
+              Vous avez été invité(e) à rejoindre K12net Dashboard
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 p-3 rounded text-sm" style={{ background: '#fce8ea', color: '#dc3545' }}>
