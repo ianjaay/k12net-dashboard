@@ -116,7 +116,7 @@ export default function RadarDisciplinaire({ student, classStudents, termId }: P
                 strokeDasharray="5 5"
               />
               <Tooltip
-                formatter={(v: number, name: string) => [`${v.toFixed(2)}/20`, name]}
+                formatter={(v, name) => [`${Number(v).toFixed(2)}/20`, name]}
                 contentStyle={{ fontSize: 11, borderRadius: 8 }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />

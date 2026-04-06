@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
-import { FileText, Printer, Download } from 'lucide-react';
+import { FileText, Printer } from 'lucide-react';
 import { useSession } from '../../contexts/SessionContext';
 import type { TermId } from '../../types/k12';
 import type { ReportType } from '../../types/reports';

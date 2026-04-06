@@ -2,17 +2,16 @@
 // Pure functions that compute data structures for all 7 reports.
 
 import type {
-  K12Student, K12Class, K12AppData, TermId, GradeLevel, Branch,
-  SubjectYearGrades, TermResult,
+  K12Student, K12Class, TermId,
+  TermResult,
 } from '../types/k12';
-import { GRADE_LEVEL_LABELS } from '../types/k12';
 import type {
   PVConseilData, ListeNominativeData, ListeNominativeEntry,
   MajorEntry, PremierDisciplineEntry, NonClasseEntry, BilanAnnuelEntry,
   DisciplineStats, GenderCount, GenderMoyenneRepartition,
 } from '../types/reports';
 import {
-  fmtNum, fmtRankWithExAequo, getAppreciation,
+  fmtRankWithExAequo, getAppreciation,
   fmtDistinctionSanction, getTrimestreLabel, getNiveauLabel,
 } from '../types/reports';
 

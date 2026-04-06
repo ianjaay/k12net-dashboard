@@ -5,9 +5,31 @@ import { saveSessionAppData, loadSessionAppData } from '../lib/sessionStorage';
 import type { SessionDoc, SessionRole } from '../types';
 import type {
   K12Student, K12Class, K12AppData,
-  TermView, GradeLevel, Branch,
+  TermView, GradeLevel, Branch, PromotionStatus,
 } from '../types/k12';
 import { computeClassStats, type K12ClassStats } from '../utils/k12RulesEngine';
+
+// ─── Student list filter state (persisted across route changes) ─────────────
+
+export interface StudentListFilters {
+  search: string;
+  statusFilter: PromotionStatus | 'ALL';
+  sortKey: string;
+  sortDir: 'asc' | 'desc';
+  markMin: number | null;
+  markMax: number | null;
+  selectedDistSanc: string[];
+}
+
+const DEFAULT_STUDENT_LIST_FILTERS: StudentListFilters = {
+  search: '',
+  statusFilter: 'ALL',
+  sortKey: 'avg',
+  sortDir: 'desc',
+  markMin: null,
+  markMax: null,
+  selectedDistSanc: [],
+};
 
 // ─── Context State ──────────────────────────────────────────────────────────
 
@@ -31,6 +53,12 @@ interface SessionState {
   // Computed
   activeStudents: K12Student[];
   classStats: K12ClassStats | null;
+  // Filtered student navigation (set by StudentList)
+  filteredStudentMatricules: string[];
+  setFilteredStudentMatricules: (matricules: string[]) => void;
+  // Student list filter persistence
+  studentListFilters: StudentListFilters;
+  setStudentListFilters: (filters: StudentListFilters) => void;
   // Actions
   setSelectedGradeLevel: (level: GradeLevel | null) => void;
   setSelectedBranch: (branch: Branch | null) => void;
@@ -53,6 +81,8 @@ export function SessionProvider({ sessionId, children }: { sessionId: string; ch
   const [selectedBranch, setSelectedBranchRaw] = useState<Branch | null>(null);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [termView, setTermView] = useState<TermView>('ANNUAL');
+  const [filteredStudentMatricules, setFilteredStudentMatricules] = useState<string[]>([]);
+  const [studentListFilters, setStudentListFilters] = useState<StudentListFilters>(DEFAULT_STUDENT_LIST_FILTERS);
 
   const userRole: SessionRole = useMemo(() => {
     if (!session || !user) return 'reader';
@@ -148,6 +178,8 @@ export function SessionProvider({ sessionId, children }: { sessionId: string; ch
       termView, isMultiClass,
       availableGradeLevels, availableBranches, filteredClasses,
       activeStudents, classStats,
+      filteredStudentMatricules, setFilteredStudentMatricules,
+      studentListFilters, setStudentListFilters,
       setSelectedGradeLevel, setSelectedBranch, setSelectedClassId, setTermView,
       handleK12DataReady,
       refreshData: loadData,

@@ -1,15 +1,17 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { Search, ChevronUp, ChevronDown, Filter } from 'lucide-react';
 import type { K12Student, PromotionStatus, TermView } from '../types/k12';
 import { PromotionBadge, DistinctionBadge, SanctionBadge } from './Dashboard';
 import ExportButton from './ExportButton';
 import type { ExportTableData } from '../utils/exportTable';
+import { useSession } from '../contexts/SessionContext';
 
 interface Props {
   students: K12Student[];
   termView: TermView;
   onTermViewChange: (v: TermView) => void;
   onStudentClick: (student: K12Student) => void;
+  onFilteredChange?: (matricules: string[]) => void;
 }
 
 type SortKey = 'rank' | 'name' | 'avg' | 'yearAvg' | 't1Avg' | 't2Avg' | 't3Avg' | 'status';
@@ -23,10 +25,6 @@ function getTermRank(s: K12Student, tid: 'T1' | 'T2' | 'T3'): number | null {
   return s.yearResult?.termResults.find(t => t.termId === tid)?.rank ?? null;
 }
 
-function getTermTotal(s: K12Student, tid: 'T1' | 'T2' | 'T3'): number | null {
-  return s.yearResult?.termResults.find(t => t.termId === tid)?.totalStudents ?? null;
-}
-
 function getAvgForView(s: K12Student, view: TermView): number | null {
   return view === 'ANNUAL' ? (s.yearResult?.yearAverage ?? null) : getTermAvg(s, view as 'T1' | 'T2' | 'T3');
 }
@@ -35,11 +33,64 @@ function getRankForView(s: K12Student, view: TermView): number | null {
   return view === 'ANNUAL' ? (s.yearResult?.rank ?? null) : getTermRank(s, view as 'T1' | 'T2' | 'T3');
 }
 
-export default function StudentList({ students, termView, onTermViewChange, onStudentClick }: Props) {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<PromotionStatus | 'ALL'>('ALL');
-  const [sortKey, setSortKey] = useState<SortKey>('avg');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+export default function StudentList({ students, termView, onTermViewChange, onStudentClick, onFilteredChange }: Props) {
+  const { studentListFilters, setStudentListFilters } = useSession();
+
+  // Derive local values from persisted filters
+  const search = studentListFilters.search;
+  const statusFilter = studentListFilters.statusFilter;
+  const sortKey = studentListFilters.sortKey as SortKey;
+  const sortDir = studentListFilters.sortDir as SortDir;
+  const markMin = studentListFilters.markMin;
+  const markMax = studentListFilters.markMax;
+  const selectedDistSanc = useMemo(() => new Set(studentListFilters.selectedDistSanc), [studentListFilters.selectedDistSanc]);
+
+  // Setters that update context
+  const setSearch = useCallback((v: string) => setStudentListFilters({ ...studentListFilters, search: v }), [studentListFilters, setStudentListFilters]);
+  const setStatusFilter = useCallback((v: PromotionStatus | 'ALL') => setStudentListFilters({ ...studentListFilters, statusFilter: v }), [studentListFilters, setStudentListFilters]);
+  const setSortKey = useCallback((v: SortKey) => setStudentListFilters({ ...studentListFilters, sortKey: v }), [studentListFilters, setStudentListFilters]);
+  const setSortDir = useCallback((v: SortDir) => setStudentListFilters({ ...studentListFilters, sortDir: v }), [studentListFilters, setStudentListFilters]);
+  const setMarkMin = useCallback((v: number | null) => setStudentListFilters({ ...studentListFilters, markMin: v }), [studentListFilters, setStudentListFilters]);
+  const setMarkMax = useCallback((v: number | null) => setStudentListFilters({ ...studentListFilters, markMax: v }), [studentListFilters, setStudentListFilters]);
+  const setSelectedDistSanc = useCallback((updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    const next = typeof updater === 'function' ? updater(new Set(studentListFilters.selectedDistSanc)) : updater;
+    setStudentListFilters({ ...studentListFilters, selectedDistSanc: [...next] });
+  }, [studentListFilters, setStudentListFilters]);
+
+  const [distSancOpen, setDistSancOpen] = useState(false);
+  const distSancRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (distSancRef.current && !distSancRef.current.contains(e.target as Node)) setDistSancOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const toggleDistSanc = (val: string) => {
+    setSelectedDistSanc(prev => {
+      const next = new Set(prev);
+      if (next.has(val)) next.delete(val); else next.add(val);
+      return next;
+    });
+  };
+
+  const DIST_OPTIONS: { value: string; label: string; color: string }[] = [
+    { value: 'THF', label: 'THF', color: '#22d273' },
+    { value: 'THFR', label: 'THFR', color: '#86efac' },
+    { value: 'THE', label: 'THE', color: '#5556fd' },
+    { value: 'THER', label: 'THER', color: '#a5b4fc' },
+    { value: 'TH', label: 'TH', color: '#ffc107' },
+    { value: 'THR', label: 'THR', color: '#c8a44a' },
+  ];
+  const SANC_OPTIONS: { value: string; label: string; color: string }[] = [
+    { value: 'BTI', label: 'BTI', color: '#dc3545' },
+    { value: 'AVT', label: 'AVT', color: '#fca665' },
+    { value: 'BMC', label: 'BMC', color: '#7c3aed' },
+    { value: 'AMC', label: 'AMC', color: '#c084fc' },
+  ];
 
   const filtered = useMemo(() => {
     let list = [...students];
@@ -50,6 +101,32 @@ export default function StudentList({ students, termView, onTermViewChange, onSt
       );
     }
     if (statusFilter !== 'ALL') list = list.filter(s => s.yearResult?.promotionStatus === statusFilter);
+
+    // Mark range filter
+    if (markMin != null || markMax != null) {
+      list = list.filter(s => {
+        const avg = getAvgForView(s, termView);
+        if (avg == null) return false;
+        if (markMin != null && avg < markMin) return false;
+        if (markMax != null && avg > markMax) return false;
+        return true;
+      });
+    }
+
+    // Distinction/Sanction filter
+    if (selectedDistSanc.size > 0) {
+      list = list.filter(s => {
+        const yr = s.yearResult;
+        if (!yr) return false;
+        if (termView === 'ANNUAL') {
+          const dist = yr.termResults.slice().reverse().find(t => t.distinction != null)?.distinction;
+          const sanc = yr.termResults.slice().reverse().find(t => t.sanction != null)?.sanction;
+          return (dist != null && selectedDistSanc.has(dist)) || (sanc != null && selectedDistSanc.has(sanc));
+        }
+        const tr = yr.termResults.find(t => t.termId === termView);
+        return (tr?.distinction != null && selectedDistSanc.has(tr.distinction)) || (tr?.sanction != null && selectedDistSanc.has(tr.sanction));
+      });
+    }
 
     // For term views, only show students with data for that term
     if (termView !== 'ANNUAL') {
@@ -73,10 +150,15 @@ export default function StudentList({ students, termView, onTermViewChange, onSt
       return 0;
     });
     return list;
-  }, [students, search, statusFilter, sortKey, sortDir, termView]);
+  }, [students, search, statusFilter, markMin, markMax, selectedDistSanc, sortKey, sortDir, termView]);
+
+  // Report filtered list to parent for prev/next navigation
+  useEffect(() => {
+    onFilteredChange?.(filtered.map(s => s.matricule));
+  }, [filtered, onFilteredChange]);
 
   const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    if (sortKey === key) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('desc'); }
   };
 
@@ -161,6 +243,86 @@ export default function StudentList({ students, termView, onTermViewChange, onSt
             <option value="EXCLU">Exclu</option>
           </select>
         )}
+
+        {/* Mark range filter */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[10px] font-medium" style={{ color: '#8392a5' }}>Moy.</span>
+          <input
+            type="number" min={0} max={20} step={0.5}
+            value={markMin ?? ''} placeholder="Min"
+            onChange={e => setMarkMin(e.target.value === '' ? null : Number(e.target.value))}
+            className="text-xs font-medium rounded px-2 py-1.5 border w-14 text-center focus:outline-none focus:ring-1"
+            style={{ borderColor: '#e6e7ef', color: '#5556fd', background: '#f9f9fd' }}
+          />
+          <span className="text-[10px]" style={{ color: '#c0ccda' }}>–</span>
+          <input
+            type="number" min={0} max={20} step={0.5}
+            value={markMax ?? ''} placeholder="Max"
+            onChange={e => setMarkMax(e.target.value === '' ? null : Number(e.target.value))}
+            className="text-xs font-medium rounded px-2 py-1.5 border w-14 text-center focus:outline-none focus:ring-1"
+            style={{ borderColor: '#e6e7ef', color: '#5556fd', background: '#f9f9fd' }}
+          />
+        </div>
+
+        {/* Distinction / Sanction multi-select */}
+        <div className="relative" ref={distSancRef}>
+          <button
+            onClick={() => setDistSancOpen(!distSancOpen)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded transition-colors"
+            style={{
+              borderColor: selectedDistSanc.size > 0 ? '#5556fd' : '#e6e7ef',
+              color: selectedDistSanc.size > 0 ? '#5556fd' : '#575d78',
+              background: selectedDistSanc.size > 0 ? '#f0f0ff' : '#fff',
+            }}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            {selectedDistSanc.size > 0 ? `${selectedDistSanc.size} sélection(s)` : 'Dist. / Sanct.'}
+            <ChevronDown className="w-3 h-3" />
+          </button>
+          {distSancOpen && (
+            <div className="absolute top-full left-0 mt-1 z-20 bg-white border rounded-lg shadow-lg py-1 w-44" style={{ borderColor: '#e6e7ef' }}>
+              <p className="text-[9px] uppercase tracking-widest font-medium px-3 py-1" style={{ color: '#8392a5' }}>Distinctions</p>
+              {DIST_OPTIONS.map(opt => (
+                <label key={opt.value} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#f9f9fd] cursor-pointer text-xs" style={{ color: '#575d78' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDistSanc.has(opt.value)}
+                    onChange={() => toggleDistSanc(opt.value)}
+                    className="rounded"
+                  />
+                  <span className="w-2 h-2 rounded-full" style={{ background: opt.color }} />
+                  {opt.label}
+                </label>
+              ))}
+              <hr className="my-1" style={{ borderColor: '#e6e7ef' }} />
+              <p className="text-[9px] uppercase tracking-widest font-medium px-3 py-1" style={{ color: '#8392a5' }}>Sanctions</p>
+              {SANC_OPTIONS.map(opt => (
+                <label key={opt.value} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#f9f9fd] cursor-pointer text-xs" style={{ color: '#575d78' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDistSanc.has(opt.value)}
+                    onChange={() => toggleDistSanc(opt.value)}
+                    className="rounded"
+                  />
+                  <span className="w-2 h-2 rounded-full" style={{ background: opt.color }} />
+                  {opt.label}
+                </label>
+              ))}
+              {selectedDistSanc.size > 0 && (
+                <>
+                  <hr className="my-1" style={{ borderColor: '#e6e7ef' }} />
+                  <button
+                    onClick={() => { setSelectedDistSanc(new Set()); setDistSancOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-[#fce8ea] transition-colors"
+                    style={{ color: '#dc3545' }}
+                  >
+                    Effacer tout
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
         <span className="text-xs ml-auto" style={{ color: '#8392a5' }}>{filtered.length}/{students.length}</span>
         <ExportButton getData={getExportData} />
       </div>

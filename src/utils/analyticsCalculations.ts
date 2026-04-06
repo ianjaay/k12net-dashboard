@@ -1,11 +1,11 @@
 // ─── Analytics Calculations ─────────────────────────────────────────────────
 // Statistics, deltas, alerts, profiles, and progression report generation.
 
-import type { K12Student, K12Class, TermId, TermView } from '../types/k12';
+import type { K12Student, TermId } from '../types/k12';
 import type {
-  DeltaResult, DeltaDirection, Alert, AlertSeverity,
+  DeltaResult, DeltaDirection, Alert,
   StudentProfile, DisciplineProfile, ProgressionReport,
-  TermSnapshot, PeriodStats, DISCIPLINE_FAMILIES,
+  TermSnapshot, PeriodStats,
 } from '../types/analytics';
 import { DISCIPLINE_FAMILIES as FAMILIES } from '../types/analytics';
 

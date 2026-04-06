@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
-  PieChart, Pie, ResponsiveContainer,
+  ResponsiveContainer,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Legend,
 } from 'recharts';
 import { Users, TrendingUp, Award, AlertTriangle, ChevronDown, ChevronUp, XCircle, Bell, Maximize2, X } from 'lucide-react';
@@ -10,7 +10,7 @@ import { getGradeLevelGroup } from '../types/k12';
 import { computeClassStats, BUILTIN_RULES } from '../utils/k12RulesEngine';
 import { computePeriodStats, calculateDelta, generateAllAlerts } from '../utils/analyticsCalculations';
 import type { DeltaResult } from '../types/analytics';
-import MetricCard, { DeltaBadge } from './MetricCard';
+import MetricCard from './MetricCard';
 import ExportButton from './ExportButton';
 import type { ExportTableData } from '../utils/exportTable';
 
@@ -20,8 +20,6 @@ interface Props {
   onTermViewChange: (v: TermView) => void;
   onStudentClick: (student: K12Student) => void;
 }
-
-const STATUS_COLORS = { ADMIS: '#22d273', REDOUBLE: '#ffc107', EXCLU: '#dc3545' };
 
 export default function Dashboard({ students, termView, onTermViewChange, onStudentClick }: Props) {
   const stats = useMemo(() => computeClassStats(students), [students]);
@@ -110,23 +108,26 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
   };
 
   const topStudents = useMemo(() => {
-    const base = topThreshold != null
-      ? studentsWithAvg.filter(s => {
-          const avg = getStudentAvg(s);
-          return avg != null && avg >= topThreshold;
-        })
-      : studentsWithAvg.slice(0, topCount);
+    let list = studentsWithAvg;
+    if (topThreshold != null) {
+      list = list.filter(s => {
+        const avg = getStudentAvg(s);
+        return avg != null && avg >= topThreshold;
+      });
+    }
+    const base = list.slice(0, topCount);
     return applySorts(base, 'top');
   }, [studentsWithAvg, topCount, topThreshold, sorts.top, getStudentAvg]);
 
   const bottomStudents = useMemo(() => {
-    const reversed = [...studentsWithAvg].reverse();
-    const base = bottomThreshold != null
-      ? reversed.filter(s => {
-          const avg = getStudentAvg(s);
-          return avg != null && avg < bottomThreshold;
-        })
-      : reversed.slice(0, bottomCount);
+    let list = [...studentsWithAvg].reverse();
+    if (bottomThreshold != null) {
+      list = list.filter(s => {
+        const avg = getStudentAvg(s);
+        return avg != null && avg < bottomThreshold;
+      });
+    }
+    const base = list.slice(0, bottomCount);
     return applySorts(base, 'bottom');
   }, [studentsWithAvg, bottomCount, bottomThreshold, sorts.bottom, getStudentAvg]);
 
@@ -158,31 +159,32 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
     ].filter(d => d.value > 0);
   }, [stats, termView]);
 
-  const pieData = [
-    { name: 'Admis', value: stats.promoted, color: STATUS_COLORS.ADMIS },
-    { name: 'Redouble', value: stats.retained, color: STATUS_COLORS.REDOUBLE },
-    { name: 'Exclu', value: stats.expelled, color: STATUS_COLORS.EXCLU },
-  ].filter(d => d.value > 0);
+  // Normalize subject name: strip trailing *, trim whitespace
+  const normSubject = (name: string) => name.replace(/\*+$/, '').trim();
 
   const radarData = useMemo(() => {
-    // Collect all distinct subject codes across students
-    const subjectMap = new Map<string, { code: string; name: string }>();
+    // Group subjects by normalized name to deduplicate across classes
+    const subjectMap = new Map<string, { codes: Set<string>; name: string }>();
     for (const s of students) {
       for (const sg of s.subjectGrades) {
-        if (sg.coefficient > 0 && !subjectMap.has(sg.subjectCode)) {
-          subjectMap.set(sg.subjectCode, { code: sg.subjectCode, name: sg.subjectName });
+        if (sg.coefficient <= 0) continue;
+        const key = normSubject(sg.subjectName);
+        const existing = subjectMap.get(key);
+        if (existing) {
+          existing.codes.add(sg.subjectCode);
+        } else {
+          subjectMap.set(key, { codes: new Set([sg.subjectCode]), name: key });
         }
       }
     }
 
-    return Array.from(subjectMap.values()).map(({ code, name }) => {
+    return Array.from(subjectMap.values()).map(({ codes, name }) => {
       const avgs: number[] = [];
       for (const s of students) {
-        const sg = s.subjectGrades.find(g => g.subjectCode === code);
+        const sg = s.subjectGrades.find(g => codes.has(g.subjectCode));
         if (!sg) continue;
         let avg: number | null = null;
         if (termView === 'ANNUAL') {
-          // Average across available terms
           const termAvgs = (['T1', 'T2', 'T3'] as const)
             .map(t => sg.terms[t]?.average)
             .filter((v): v is number => v != null);
@@ -214,19 +216,25 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
   [radarData]);
 
   const disciplineStats = useMemo(() => {
-    const subjectMap = new Map<string, { code: string; name: string }>();
+    // Group subjects by normalized name to deduplicate across classes
+    const subjectMap = new Map<string, { codes: Set<string>; name: string }>();
     for (const s of students) {
       for (const sg of s.subjectGrades) {
-        if (sg.coefficient > 0 && !subjectMap.has(sg.subjectCode)) {
-          subjectMap.set(sg.subjectCode, { code: sg.subjectCode, name: sg.subjectName });
+        if (sg.coefficient <= 0) continue;
+        const key = normSubject(sg.subjectName);
+        const existing = subjectMap.get(key);
+        if (existing) {
+          existing.codes.add(sg.subjectCode);
+        } else {
+          subjectMap.set(key, { codes: new Set([sg.subjectCode]), name: key });
         }
       }
     }
 
-    return Array.from(subjectMap.values()).map(({ code, name }) => {
+    return Array.from(subjectMap.values()).map(({ codes, name }) => {
       const avgs: number[] = [];
       for (const s of students) {
-        const sg = s.subjectGrades.find(g => g.subjectCode === code);
+        const sg = s.subjectGrades.find(g => codes.has(g.subjectCode));
         if (!sg) continue;
         let avg: number | null = null;
         if (termView === 'ANNUAL') {
@@ -256,15 +264,17 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
   const periodLabel = termView === 'ANNUAL' ? 'annuelle' : termView;
 
   const getTopStudentsExport = useCallback((): ExportTableData => {
-    const list = topThreshold != null
-      ? studentsWithAvg.filter(s => {
-          const avg = getStudentAvg(s);
-          return avg != null && avg >= topThreshold;
-        })
-      : studentsWithAvg.slice(0, topCount);
+    let filtered = studentsWithAvg;
+    if (topThreshold != null) {
+      filtered = filtered.filter(s => {
+        const avg = getStudentAvg(s);
+        return avg != null && avg >= topThreshold;
+      });
+    }
+    const list = filtered.slice(0, topCount);
     const thLabel = topThreshold != null ? ` | seuil ≥${topThreshold}` : '';
     return {
-      title: `Meilleurs ${topThreshold != null ? list.length : topCount} élèves (${periodLabel}${thLabel})`,
+      title: `Meilleurs ${list.length} élèves (${periodLabel}${thLabel})`,
       columns: ['Rang', 'Nom', 'Matricule', `Moyenne ${periodLabel}`, 'Distinction', 'Sanction', 'Statut'],
       rows: list.map((s, i) => [
         `#${i + 1}`, s.fullName, s.matricule,
@@ -278,16 +288,17 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
   }, [studentsWithAvg, topCount, topThreshold, getStudentAvg, getStudentDistinction, getStudentSanction, periodLabel]);
 
   const getBottomStudentsExport = useCallback((): ExportTableData => {
-    const reversed = [...studentsWithAvg].reverse();
-    const list = bottomThreshold != null
-      ? reversed.filter(s => {
-          const avg = getStudentAvg(s);
-          return avg != null && avg < bottomThreshold;
-        })
-      : reversed.slice(0, bottomCount);
+    let filtered = [...studentsWithAvg].reverse();
+    if (bottomThreshold != null) {
+      filtered = filtered.filter(s => {
+        const avg = getStudentAvg(s);
+        return avg != null && avg < bottomThreshold;
+      });
+    }
+    const list = filtered.slice(0, bottomCount);
     const thLabel = bottomThreshold != null ? ` | seuil <${bottomThreshold}` : '';
     return {
-      title: `${bottomThreshold != null ? list.length : bottomCount} élèves les plus faibles (${periodLabel}${thLabel})`,
+      title: `${list.length} élèves les plus faibles (${periodLabel}${thLabel})`,
       columns: ['Rang', 'Nom', 'Matricule', `Moyenne ${periodLabel}`, 'Distinction', 'Sanction', 'Statut'],
       rows: list.map((s, i) => [
         `#${i + 1}`, s.fullName, s.matricule,
@@ -699,7 +710,7 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
                     <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>&lt;8.5</th>
                     <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>8.5–10</th>
                     <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>≥10</th>
-                    <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>% ≥10</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Répartition</th>
                     <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Appréciation</th>
                   </tr>
                 </thead>
@@ -714,14 +725,26 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
                       <td className="px-3 py-2.5 text-center" style={{ color: d.lt85 > 0 ? '#dc3545' : '#c0ccda', fontWeight: d.lt85 > 0 ? 700 : 400 }}>{d.lt85}</td>
                       <td className="px-3 py-2.5 text-center" style={{ color: '#575d78' }}>{d.mid}</td>
                       <td className="px-3 py-2.5 text-center" style={{ color: '#575d78' }}>{d.gte10}</td>
-                      <td className="px-3 py-2.5 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <div className="h-1.5 rounded-full" style={{
-                            width: Math.max(4, d.pct10 * 0.6),
-                            background: d.pct10 >= 95 ? '#22d273' : d.pct10 >= 80 ? '#5556fd' : d.pct10 >= 60 ? '#ffc107' : '#dc3545',
-                          }} />
-                          <span className="text-xs font-medium" style={{ color: '#575d78' }}>{d.pct10}%</span>
-                        </div>
+                      <td className="px-3 py-2.5 text-center" style={{ minWidth: 120 }}>
+                        {(() => {
+                          const pLt = Math.round((d.lt85 / d.eff) * 100);
+                          const pMid = Math.round((d.mid / d.eff) * 100);
+                          const pGte = 100 - pLt - pMid;
+                          return (
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="w-full h-2 rounded-full overflow-hidden flex" style={{ background: '#f3f6f9' }}>
+                                {pLt > 0 && <div style={{ width: `${pLt}%`, background: '#dc3545' }} />}
+                                {pMid > 0 && <div style={{ width: `${pMid}%`, background: '#ffc107' }} />}
+                                {pGte > 0 && <div style={{ width: `${pGte}%`, background: '#22d273' }} />}
+                              </div>
+                              <div className="flex gap-2 text-[9px]" style={{ color: '#8392a5' }}>
+                                {pLt > 0 && <span style={{ color: '#dc3545' }}>{pLt}%</span>}
+                                {pMid > 0 && <span style={{ color: '#d4a017' }}>{pMid}%</span>}
+                                <span style={{ color: '#22d273' }}>{pGte}%</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2.5 text-center">
                         <AppreciationBadge app={d.app} />
@@ -739,8 +762,8 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
       <div className="card-cassie overflow-hidden">
         <div className="px-5 py-4 border-b flex items-center justify-between cursor-pointer select-none" style={{ borderColor: '#e6e7ef' }} onClick={() => toggle('top')}>
           <div className="flex items-center gap-2">
-            <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>Meilleurs</h6>
             <CountSelect value={topCount} onChange={setTopCount} max={students.length} onClick={e => e.stopPropagation()} />
+            <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>Meilleurs</h6>
             <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>élèves</h6>
             <span className="text-xs" style={{ color: '#8392a5' }}>|</span>
             <span className="text-xs" style={{ color: '#8392a5' }}>≥</span>
@@ -799,8 +822,8 @@ export default function Dashboard({ students, termView, onTermViewChange, onStud
       <div className="card-cassie overflow-hidden">
         <div className="px-5 py-4 border-b flex items-center justify-between cursor-pointer select-none" style={{ borderColor: '#d42b42' }} onClick={() => toggle('bottom')}>
           <div className="flex items-center gap-2">
-            <h6 className="font-medium text-sm" style={{ color: '#d42b42' }}>Derniers</h6>
             <CountSelect value={bottomCount} onChange={setBottomCount} max={students.length} onClick={e => e.stopPropagation()} />
+            <h6 className="font-medium text-sm" style={{ color: '#d42b42' }}>Derniers</h6>
             <h6 className="font-medium text-sm" style={{ color: '#d42b42' }}>élèves</h6>
             <span className="text-xs" style={{ color: '#8392a5' }}>|</span>
             <span className="text-xs" style={{ color: '#8392a5' }}>&lt;</span>
