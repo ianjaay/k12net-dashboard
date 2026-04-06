@@ -66,11 +66,14 @@ interface ParsedSheet {
   weightedTotalCol: number | null;
   /** Column index for "Notes pondérées" → Moyenne */
   weightedMoyenneCol: number | null;
+  /** Column index for "Matricule" if present */
+  matriculeCol: number | null;
 }
 
 interface ParsedStudent {
   rank: number;
   fullName: string;
+  matricule: string | null;
   grades: Map<number, number | null>; // col → value
 }
 
@@ -140,8 +143,17 @@ function parseSheet(ws: XLSX.WorkSheet, sheetName: string): ParsedSheet | null {
   // Find Notes pondérées section
   const { totalCol, moyenneCol } = findWeightedSection(ws, merges, subjects);
 
+  // Detect optional Matricule column (scan columns 0–5 in header row)
+  const matriculeCol = detectMatriculeCol(ws, subjects);
+
+  // Detect Nom column (fallback to column 1)
+  const nameCol = detectNameCol(ws, subjects);
+
+  // Detect rank column (optional — rank is computed by the rules engine)
+  const rankCol = detectRankCol(ws, subjects);
+
   // Parse students
-  const students = parseStudents(ws, subjects, totalCol, moyenneCol);
+  const students = parseStudents(ws, subjects, totalCol, moyenneCol, matriculeCol, nameCol, rankCol);
 
   return {
     className,
@@ -152,6 +164,7 @@ function parseSheet(ws: XLSX.WorkSheet, sheetName: string): ParsedSheet | null {
     students,
     weightedTotalCol: totalCol,
     weightedMoyenneCol: moyenneCol,
+    matriculeCol,
   };
 }
 
@@ -291,6 +304,64 @@ function findWeightedSection(
 }
 
 /**
+ * Detect a "Matricule" column in the header rows (before the first subject block).
+ * Scans row 6 (headers) and row 5 (category) for common matricule labels.
+ */
+function detectMatriculeCol(ws: XLSX.WorkSheet, subjects: SubjectBlock[]): number | null {
+  const firstSubjectCol = subjects.length > 0 ? Math.min(...subjects.map(s => s.startCol)) : 10;
+  const matPatterns = /^(matricule|mat\.?|n[°º]?\s*mat|code\s*[eé]l[eè]ve|id\s*[eé]l[eè]ve|identificant\s*local|identifiant\s*local)$/i;
+
+  // Scan columns before first subject in rows 4, 5, 6
+  for (let c = 0; c < firstSubjectCol && c < 10; c++) {
+    for (const row of [ROW_HEADERS, ROW_HEADERS - 1, ROW_SUBJECTS]) {
+      const val = getCellString(ws, row, c);
+      if (val && matPatterns.test(val.trim())) {
+        return c;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Detect the "Nom" column in the header rows (before the first subject block).
+ * Falls back to column 1 if not found.
+ */
+function detectNameCol(ws: XLSX.WorkSheet, subjects: SubjectBlock[]): number {
+  const firstSubjectCol = subjects.length > 0 ? Math.min(...subjects.map(s => s.startCol)) : 10;
+  const namePatterns = /^(nom|nom\s*(et\s*)?pr[eé]nom|[eé]l[eè]ve|nom\s*complet|nom\s*[eé]l[eè]ve)$/i;
+
+  for (let c = 0; c < firstSubjectCol && c < 10; c++) {
+    for (const row of [ROW_HEADERS, ROW_HEADERS - 1, ROW_SUBJECTS]) {
+      const val = getCellString(ws, row, c);
+      if (val && namePatterns.test(val.trim())) {
+        return c;
+      }
+    }
+  }
+  return 1; // fallback
+}
+
+/**
+ * Detect a "Rang" column in the header rows (before the first subject block).
+ * Returns null if not found — rank will be computed by the rules engine.
+ */
+function detectRankCol(ws: XLSX.WorkSheet, subjects: SubjectBlock[]): number | null {
+  const firstSubjectCol = subjects.length > 0 ? Math.min(...subjects.map(s => s.startCol)) : 10;
+  const rankPatterns = /^(rang|rank|n[°º]?\s*ordre|classement)$/i;
+
+  for (let c = 0; c < firstSubjectCol && c < 10; c++) {
+    for (const row of [ROW_HEADERS, ROW_HEADERS - 1, ROW_SUBJECTS]) {
+      const val = getCellString(ws, row, c);
+      if (val && rankPatterns.test(val.trim())) {
+        return c;
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Parse student rows starting from row 7.
  */
 function parseStudents(
@@ -298,6 +369,9 @@ function parseStudents(
   subjects: SubjectBlock[],
   weightedTotalCol: number | null,
   weightedMoyenneCol: number | null,
+  matriculeCol: number | null,
+  nameCol: number,
+  rankCol: number | null,
 ): ParsedStudent[] {
   const students: ParsedStudent[] = [];
   const maxCol = Math.max(
@@ -307,13 +381,15 @@ function parseStudents(
   );
 
   for (let r = ROW_DATA_START; r <= 500; r++) {
-    const nameVal = getCellString(ws, r, 1);
+    const nameVal = getCellString(ws, r, nameCol);
     if (!nameVal) break; // end of student data
 
-    const rank = getCellNumber(ws, r, 0) ?? 0;
+    const rank = rankCol !== null ? (getCellNumber(ws, r, rankCol) ?? 0) : 0;
+    const matricule = matriculeCol !== null ? getCellString(ws, r, matriculeCol) || null : null;
     const grades = new Map<number, number | null>();
 
-    for (let c = 2; c <= maxCol; c++) {
+    const gradesStartCol = subjects.length > 0 ? Math.min(...subjects.map(s => s.startCol)) : 2;
+    for (let c = gradesStartCol; c <= maxCol; c++) {
       const raw = getCellValue(ws, r, c);
       if (raw === undefined || raw === null || raw === '' || raw === 'X') {
         grades.set(c, null);
@@ -323,7 +399,7 @@ function parseStudents(
       }
     }
 
-    students.push({ rank, fullName: nameVal, grades });
+    students.push({ rank, fullName: nameVal, matricule, grades });
   }
 
   return students;
@@ -343,7 +419,7 @@ function buildK12Class(parsed: ParsedSheet, subjectDefs: SubjectDefinition[]): K
 
     return {
       id: `${parsed.className}_${idx}`,
-      matricule: String(ps.rank),
+      matricule: ps.matricule ?? String(ps.rank),
       firstName: extractFirstName(ps.fullName),
       lastName: extractLastName(ps.fullName),
       fullName: ps.fullName,

@@ -12,17 +12,33 @@ interface Props {
   onStudentClick: (student: K12Student) => void;
 }
 
-type SortKey = 'rank' | 'name' | 'yearAvg' | 't1Avg' | 't2Avg' | 't3Avg' | 'status';
+type SortKey = 'rank' | 'name' | 'avg' | 'yearAvg' | 't1Avg' | 't2Avg' | 't3Avg' | 'status';
 type SortDir = 'asc' | 'desc';
 
 function getTermAvg(s: K12Student, tid: 'T1' | 'T2' | 'T3'): number | null {
   return s.yearResult?.termResults.find(t => t.termId === tid)?.termAverage ?? null;
 }
 
+function getTermRank(s: K12Student, tid: 'T1' | 'T2' | 'T3'): number | null {
+  return s.yearResult?.termResults.find(t => t.termId === tid)?.rank ?? null;
+}
+
+function getTermTotal(s: K12Student, tid: 'T1' | 'T2' | 'T3'): number | null {
+  return s.yearResult?.termResults.find(t => t.termId === tid)?.totalStudents ?? null;
+}
+
+function getAvgForView(s: K12Student, view: TermView): number | null {
+  return view === 'ANNUAL' ? (s.yearResult?.yearAverage ?? null) : getTermAvg(s, view as 'T1' | 'T2' | 'T3');
+}
+
+function getRankForView(s: K12Student, view: TermView): number | null {
+  return view === 'ANNUAL' ? (s.yearResult?.rank ?? null) : getTermRank(s, view as 'T1' | 'T2' | 'T3');
+}
+
 export default function StudentList({ students, termView, onTermViewChange, onStudentClick }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<PromotionStatus | 'ALL'>('ALL');
-  const [sortKey, setSortKey] = useState<SortKey>('yearAvg');
+  const [sortKey, setSortKey] = useState<SortKey>('avg');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const filtered = useMemo(() => {
@@ -35,22 +51,29 @@ export default function StudentList({ students, termView, onTermViewChange, onSt
     }
     if (statusFilter !== 'ALL') list = list.filter(s => s.yearResult?.promotionStatus === statusFilter);
 
+    // For term views, only show students with data for that term
+    if (termView !== 'ANNUAL') {
+      const tid = termView as 'T1' | 'T2' | 'T3';
+      list = list.filter(s => getTermAvg(s, tid) != null);
+    }
+
     list.sort((a, b) => {
       let va: number | string = 0;
       let vb: number | string = 0;
       if (sortKey === 'name') { va = a.fullName.toLowerCase(); vb = b.fullName.toLowerCase(); }
+      else if (sortKey === 'avg') { va = getAvgForView(a, termView) ?? 0; vb = getAvgForView(b, termView) ?? 0; }
       else if (sortKey === 'yearAvg') { va = a.yearResult?.yearAverage ?? 0; vb = b.yearResult?.yearAverage ?? 0; }
       else if (sortKey === 't1Avg') { va = getTermAvg(a, 'T1') ?? 0; vb = getTermAvg(b, 'T1') ?? 0; }
       else if (sortKey === 't2Avg') { va = getTermAvg(a, 'T2') ?? 0; vb = getTermAvg(b, 'T2') ?? 0; }
       else if (sortKey === 't3Avg') { va = getTermAvg(a, 'T3') ?? 0; vb = getTermAvg(b, 'T3') ?? 0; }
-      else if (sortKey === 'rank') { va = a.yearResult?.rank ?? 999; vb = b.yearResult?.rank ?? 999; }
+      else if (sortKey === 'rank') { va = getRankForView(a, termView) ?? 999; vb = getRankForView(b, termView) ?? 999; }
       else if (sortKey === 'status') { va = a.yearResult?.promotionStatus ?? ''; vb = b.yearResult?.promotionStatus ?? ''; }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
       if (va > vb) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
     return list;
-  }, [students, search, statusFilter, sortKey, sortDir]);
+  }, [students, search, statusFilter, sortKey, sortDir, termView]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -63,20 +86,36 @@ export default function StudentList({ students, termView, onTermViewChange, onSt
       : <ChevronDown className="w-3 h-3" style={{ color: '#c0ccda' }} />;
 
   const getExportData = useCallback((): ExportTableData => {
-    const cols = ['Rang', 'Matricule', 'Nom', 'Moy. T1', 'Moy. T2', 'Moy. T3', 'Moy. Annuelle', 'Statut', 'Filière'];
-    const rows = filtered.map(s => [
-      s.yearResult?.rank ?? '—',
-      s.matricule,
-      s.fullName,
-      getTermAvg(s, 'T1')?.toFixed(2) ?? '—',
-      getTermAvg(s, 'T2')?.toFixed(2) ?? '—',
-      getTermAvg(s, 'T3')?.toFixed(2) ?? '—',
-      s.yearResult?.yearAverage?.toFixed(2) ?? '—',
-      s.yearResult?.promotionStatus ?? '—',
-      s.branch ?? '—',
-    ]);
-    return { title: 'Liste des élèves', columns: cols, rows, filename: 'liste_eleves' };
-  }, [filtered]);
+    if (termView === 'ANNUAL') {
+      const cols = ['Rang', 'Matricule', 'Nom', 'Moy. T1', 'Moy. T2', 'Moy. T3', 'Moy. Annuelle', 'Statut', 'Filière'];
+      const rows = filtered.map(s => [
+        s.yearResult?.rank ?? '—',
+        s.matricule,
+        s.fullName,
+        getTermAvg(s, 'T1')?.toFixed(2) ?? '—',
+        getTermAvg(s, 'T2')?.toFixed(2) ?? '—',
+        getTermAvg(s, 'T3')?.toFixed(2) ?? '—',
+        s.yearResult?.yearAverage?.toFixed(2) ?? '—',
+        s.yearResult?.promotionStatus ?? '—',
+        s.branch ?? '—',
+      ]);
+      return { title: 'Liste des élèves — Annuel', columns: cols, rows, filename: 'liste_eleves_annuel' };
+    }
+    const tid = termView as 'T1' | 'T2' | 'T3';
+    const cols = ['Rang', 'Matricule', 'Nom', `Moyenne ${tid}`, 'Distinction', 'Sanction'];
+    const rows = filtered.map(s => {
+      const tr = s.yearResult?.termResults.find(t => t.termId === tid);
+      return [
+        tr?.rank ?? '—',
+        s.matricule,
+        s.fullName,
+        tr?.termAverage?.toFixed(2) ?? '—',
+        tr?.distinction ?? '—',
+        tr?.sanction ?? '—',
+      ];
+    });
+    return { title: `Liste des élèves — ${tid}`, columns: cols, rows, filename: `liste_eleves_${tid.toLowerCase()}` };
+  }, [filtered, termView]);
 
   return (
     <div className="space-y-4">
@@ -109,17 +148,19 @@ export default function StudentList({ students, termView, onTermViewChange, onSt
             style={{ borderColor: '#e6e7ef', color: '#373857' }}
           />
         </div>
-        <select
-          value={statusFilter ?? 'ALL'}
-          onChange={e => setStatusFilter(e.target.value === 'ALL' ? 'ALL' : e.target.value as PromotionStatus)}
-          className="cassie-select py-2 px-3 text-sm border rounded focus:outline-none"
-          style={{ borderColor: '#e6e7ef', color: '#575d78' }}
-        >
-          <option value="ALL">Tous les statuts</option>
-          <option value="ADMIS">Admis</option>
-          <option value="REDOUBLE">Redouble</option>
-          <option value="EXCLU">Exclu</option>
-        </select>
+        {termView === 'ANNUAL' && (
+          <select
+            value={statusFilter ?? 'ALL'}
+            onChange={e => setStatusFilter(e.target.value === 'ALL' ? 'ALL' : e.target.value as PromotionStatus)}
+            className="cassie-select py-2 px-3 text-sm border rounded focus:outline-none"
+            style={{ borderColor: '#e6e7ef', color: '#575d78' }}
+          >
+            <option value="ALL">Tous les statuts</option>
+            <option value="ADMIS">Admis</option>
+            <option value="REDOUBLE">Redouble</option>
+            <option value="EXCLU">Exclu</option>
+          </select>
+        )}
         <span className="text-xs ml-auto" style={{ color: '#8392a5' }}>{filtered.length}/{students.length}</span>
         <ExportButton getData={getExportData} />
       </div>
@@ -131,16 +172,23 @@ export default function StudentList({ students, termView, onTermViewChange, onSt
             <thead>
               <tr style={{ background: '#f9f9fd' }}>
                 <SortHeader label="Rang" k="rank" onSort={toggleSort} icon={<SortIcon k="rank" />} />
-                <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#8392a5' }}>Matricule</th>
-                <SortHeader label="Nom" k="name" onSort={toggleSort} icon={<SortIcon k="name" />} />
-                <SortHeader label="Moy. T1" k="t1Avg" onSort={toggleSort} icon={<SortIcon k="t1Avg" />} />
-                <SortHeader label="Moy. T2" k="t2Avg" onSort={toggleSort} icon={<SortIcon k="t2Avg" />} />
-                <SortHeader label="Moy. T3" k="t3Avg" onSort={toggleSort} icon={<SortIcon k="t3Avg" />} />
-                <SortHeader label="Moy. Annuelle" k="yearAvg" onSort={toggleSort} icon={<SortIcon k="yearAvg" />} />
-                <th className="px-4 py-3 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Distinction</th>
-                <th className="px-4 py-3 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Sanction</th>
-                <SortHeader label="Statut" k="status" onSort={toggleSort} icon={<SortIcon k="status" />} />
-                <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#8392a5' }}>Filière</th>
+                <SortHeader label="Élève" k="name" onSort={toggleSort} icon={<SortIcon k="name" />} />
+                {termView === 'ANNUAL' ? (
+                  <>
+                    <SortHeader label="Moy. T1" k="t1Avg" onSort={toggleSort} icon={<SortIcon k="t1Avg" />} />
+                    <SortHeader label="Moy. T2" k="t2Avg" onSort={toggleSort} icon={<SortIcon k="t2Avg" />} />
+                    <SortHeader label="Moy. T3" k="t3Avg" onSort={toggleSort} icon={<SortIcon k="t3Avg" />} />
+                    <SortHeader label="Moy. Annuelle" k="yearAvg" onSort={toggleSort} icon={<SortIcon k="yearAvg" />} />
+                    <SortHeader label="Statut" k="status" onSort={toggleSort} icon={<SortIcon k="status" />} />
+                    <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#8392a5' }}>Filière</th>
+                  </>
+                ) : (
+                  <>
+                    <SortHeader label={`Moyenne ${termView}`} k="avg" onSort={toggleSort} icon={<SortIcon k="avg" />} />
+                    <th className="px-4 py-3 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Distinction</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Sanction</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -149,37 +197,60 @@ export default function StudentList({ students, termView, onTermViewChange, onSt
                 const activeTermResult = termView !== 'ANNUAL'
                   ? yr?.termResults.find(t => t.termId === termView)
                   : null;
+                const displayRank = termView === 'ANNUAL' ? yr?.rank : activeTermResult?.rank;
+                const displayTotal = termView === 'ANNUAL' ? yr?.totalStudents : activeTermResult?.totalStudents;
+                // For ANNUAL view, pick latest term with data for distinction/sanction
+                const displayDistinction = termView !== 'ANNUAL'
+                  ? (activeTermResult?.distinction ?? null)
+                  : (yr?.termResults.slice().reverse().find(t => t.distinction != null)?.distinction ?? null);
+                const displaySanction = termView !== 'ANNUAL'
+                  ? (activeTermResult?.sanction ?? null)
+                  : (yr?.termResults.slice().reverse().find(t => t.sanction != null)?.sanction ?? null);
                 return (
                   <tr
-                    key={s.matricule}
+                    key={s.id}
                     className="border-b cursor-pointer hover:bg-[#f9f9fd] transition-colors"
                     style={{ borderColor: '#f3f6f9' }}
                     onClick={() => onStudentClick(s)}
                   >
-                    <td className="px-4 py-3 font-bold text-center" style={{ color: '#c0ccda' }}>
-                      {yr?.rank ?? '—'}
+                    <td className="px-4 py-3 text-center" style={{ color: '#575d78' }}>
+                      {displayRank != null ? (
+                        <span className="font-bold" style={{ color: '#06072d' }}>{displayRank}</span>
+                      ) : '—'}
+                      {displayTotal != null && displayRank != null && (
+                        <span className="text-[10px] ml-0.5" style={{ color: '#c0ccda' }}>/{displayTotal}</span>
+                      )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs" style={{ color: '#8392a5' }}>{s.matricule}</td>
                     <td className="px-4 py-3">
                       <div className="font-medium" style={{ color: '#06072d' }}>{s.fullName}</div>
-                      <div className="text-xs" style={{ color: '#8392a5' }}>{s.className}</div>
+                      <div className="text-xs" style={{ color: '#8392a5' }}>
+                        <span className="font-mono">{s.matricule}</span> · {s.className}
+                      </div>
                     </td>
-                    <AvgCell value={getTermAvg(s, 'T1')} />
-                    <AvgCell value={getTermAvg(s, 'T2')} />
-                    <AvgCell value={getTermAvg(s, 'T3')} />
-                    <td className="px-4 py-3">
-                      <span className="font-bold" style={{ color: (yr?.yearAverage ?? 0) >= 10 ? '#22d273' : '#dc3545' }}>
-                        {yr?.yearAverage?.toFixed(2) ?? '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <DistinctionBadge distinction={activeTermResult?.distinction ?? null} />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <SanctionBadge sanction={activeTermResult?.sanction ?? null} />
-                    </td>
-                    <td className="px-4 py-3"><PromotionBadge status={yr?.promotionStatus ?? null} /></td>
-                    <td className="px-4 py-3 text-xs" style={{ color: '#575d78' }}>{s.branch ?? '—'}</td>
+                    {termView === 'ANNUAL' ? (
+                      <>
+                        <AvgCell value={getTermAvg(s, 'T1')} />
+                        <AvgCell value={getTermAvg(s, 'T2')} />
+                        <AvgCell value={getTermAvg(s, 'T3')} />
+                        <td className="px-4 py-3">
+                          <span className="font-bold" style={{ color: (yr?.yearAverage ?? 0) >= 10 ? '#22d273' : '#dc3545' }}>
+                            {yr?.yearAverage?.toFixed(2) ?? '—'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3"><PromotionBadge status={yr?.promotionStatus ?? null} /></td>
+                        <td className="px-4 py-3 text-xs" style={{ color: '#575d78' }}>{s.branch ?? '—'}</td>
+                      </>
+                    ) : (
+                      <>
+                        <AvgCell value={getTermAvg(s, termView as 'T1' | 'T2' | 'T3')} />
+                        <td className="px-4 py-3 text-center">
+                          <DistinctionBadge distinction={displayDistinction} />
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <SanctionBadge sanction={displaySanction} />
+                        </td>
+                      </>
+                    )}
                   </tr>
                 );
               })}

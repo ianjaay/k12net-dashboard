@@ -30,6 +30,7 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
   const [logoPreview, setLogoPreview] = useState<string | null>(settings.logo || null);
   const [schoolName, setSchoolName] = useState(settings.schoolName || 'LYCÉE SAINTE MARIE DE COCODY ABIDJAN');
   const [academicYear, setAcademicYear] = useState<AcademicYear>(settings.academicYear || '2024');
+  const [photoBaseUrl, setPhotoBaseUrl] = useState(settings.photoBaseUrl || '');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
@@ -278,6 +279,7 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
       academicYear,
       courseCatalog: localCatalog,
       rulesConfig,
+      photoBaseUrl: photoBaseUrl.trim() || undefined,
       yearConfigs: {
         ...(settings.yearConfigs ?? {}),
         [academicYear]: rulesConfig,
@@ -364,6 +366,20 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
                 )}
               </div>
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: '#373857' }}>URL du service photos élèves</label>
+            <input
+              type="url"
+              value={photoBaseUrl}
+              onChange={e => { setPhotoBaseUrl(e.target.value); setHasUnsavedChanges(true); }}
+              placeholder="https://agfne.sigfne.net/vas/picture-noprod/"
+              className="w-full text-sm border rounded px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#5556fd]"
+              style={{ borderColor: '#e6e7ef', color: '#373857' }}
+            />
+            <p className="text-[11px] mt-1" style={{ color: '#8392a5' }}>
+              Le matricule sera ajouté à la fin de l'URL. Ex : https://…/picture-noprod/<strong>20078204K</strong>
+            </p>
           </div>
         </div>
       </AdminSection>

@@ -4,8 +4,13 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, Legend, Tooltip, ReferenceLine,
 } from 'recharts';
-import type { K12Student, TermId } from '../types/k12';
+import type { K12Student, TermId, TermView } from '../types/k12';
+import { PROFILE_META } from '../types/analytics';
+import { classifyStudent, generateStudentAlerts } from '../utils/analyticsCalculations';
 import { PromotionBadge, DistinctionBadge, SanctionBadge } from './Dashboard';
+import RadarDisciplinaire from './RadarDisciplinaire';
+import StudentProgression from './StudentProgression';
+import StudentProgressionCard from './StudentProgressionCard';
 
 interface Props {
   student: K12Student;
@@ -16,7 +21,31 @@ interface Props {
 
 export default function StudentDetail({ student, classStudents, onBack, photoUrl }: Props) {
   const [expandedTerm, setExpandedTerm] = useState<TermId | null>(null);
+  const [termView, setTermView] = useState<TermView>('ANNUAL');
+  const [photoError, setPhotoError] = useState(false);
   const yr = student.yearResult;
+
+  // Detect the latest term with data
+  const latestTerm: TermId = useMemo(() => {
+    for (const tid of ['T3', 'T2', 'T1'] as TermId[]) {
+      if (yr?.termResults.some(t => t.termId === tid && t.termAverage !== null)) return tid;
+    }
+    return 'T1';
+  }, [yr]);
+
+  // Active term for display (selected or latest)
+  const activeTerm: TermId = termView !== 'ANNUAL' ? termView as TermId : latestTerm;
+  const activeTermResult = yr?.termResults.find(t => t.termId === activeTerm) ?? null;
+
+  // Student profile
+  const profile = useMemo(() => classifyStudent(student, activeTerm), [student, activeTerm]);
+  const profileMeta = PROFILE_META[profile];
+
+  // Student-specific alerts
+  const studentAlerts = useMemo(
+    () => activeTerm !== 'T1' ? generateStudentAlerts(student, activeTerm) : [],
+    [student, activeTerm],
+  );
 
   // Evolution chart data: T1, T2, T3 averages + class avg
   const evolutionData = useMemo(() => {
@@ -38,19 +67,42 @@ export default function StudentDetail({ student, classStudents, onBack, photoUrl
 
   return (
     <div className="space-y-5">
-      {/* Back */}
-      <button onClick={onBack} className="flex items-center gap-2 text-sm font-medium transition-colors" style={{ color: '#5556fd' }}>
-        <ArrowLeft className="w-4 h-4" /> Retour à la liste
-      </button>
+      {/* Back + Period filter */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <button onClick={onBack} className="flex items-center gap-2 text-sm font-medium transition-colors" style={{ color: '#5556fd' }}>
+          <ArrowLeft className="w-4 h-4" /> Retour à la liste
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium" style={{ color: '#8392a5' }}>Période :</span>
+          <div className="flex items-center rounded p-0.5" style={{ background: '#f3f6f9' }}>
+            {(['T1', 'T2', 'T3', 'ANNUAL'] as const).map(tv => (
+              <button
+                key={tv}
+                onClick={() => setTermView(tv)}
+                className="px-3 py-1.5 text-xs font-medium rounded transition-all"
+                style={termView === tv
+                  ? { background: '#5556fd', color: 'white' }
+                  : { color: '#575d78' }
+                }
+              >
+                {tv === 'ANNUAL' ? 'Annuel' : tv}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {/* Student header */}
       <div className="card-cassie p-6">
         <div className="flex flex-wrap gap-6 items-start">
           <div className="flex-shrink-0">
-            {photoUrl ? (
+            {photoUrl && !photoError ? (
               <img src={photoUrl} alt={`Photo de ${student.fullName}`}
                 className="rounded-lg object-cover border-2"
-                style={{ width: 90, height: 110, borderColor: '#e6e7ef', boxShadow: '0 2px 8px rgba(0,0,0,0.10)' }} />
+                style={{ width: 90, height: 110, borderColor: '#e6e7ef', boxShadow: '0 2px 8px rgba(0,0,0,0.10)' }}
+                onError={() => setPhotoError(true)}
+                referrerPolicy="no-referrer"
+              />
             ) : (
               <div className="rounded-lg flex items-center justify-center border-2"
                 style={{ width: 90, height: 110, borderColor: '#e6e7ef', background: '#f3f6f9', borderStyle: 'dashed' }}>
@@ -59,8 +111,7 @@ export default function StudentDetail({ student, classStudents, onBack, photoUrl
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold" style={{ color: '#06072d' }}>{student.fullName}</h2>
-            <p className="font-mono text-sm" style={{ color: '#8392a5' }}>{student.matricule}</p>
+            <h2 className="text-xl font-bold" style={{ color: '#06072d' }}>{student.matricule} — {student.fullName}</h2>
             <div className="flex flex-wrap gap-2 mt-2">
               <span className="text-[11px] px-3 py-1 rounded" style={{ background: '#f3f6f9', color: '#637382' }}>
                 {student.className}
@@ -75,22 +126,48 @@ export default function StudentDetail({ student, classStudents, onBack, photoUrl
                   Redoublant
                 </span>
               )}
+              <span className="text-[11px] font-semibold px-3 py-1 rounded" style={{ background: profileMeta.bg, color: profileMeta.color }}>
+                {profileMeta.label}
+              </span>
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-            <InfoPill label="Rang" value={yr ? `${yr.rank}/${yr.totalStudents}` : '—'} />
-            <InfoPill label="Moy. Annuelle" value={yr?.yearAverage != null ? `${yr.yearAverage.toFixed(2)}/20` : '—'} highlight={yr?.yearAverage != null ? yr.yearAverage >= 10 : undefined} />
-            <InfoPill label="Filière" value={yr?.suggestedBranch ?? student.branch ?? '—'} />
-            <div>
-              <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: '#8392a5' }}>Statut</p>
-              <PromotionBadge status={yr?.promotionStatus ?? null} />
-            </div>
+            <InfoPill
+              label="Rang"
+              value={termView === 'ANNUAL'
+                ? (yr ? `${yr.rank}/${yr.totalStudents}` : '—')
+                : (activeTermResult ? `${activeTermResult.rank}/${activeTermResult.totalStudents}` : '—')
+              }
+            />
+            <InfoPill
+              label={termView === 'ANNUAL' ? 'Moy. Annuelle' : `Moy. ${activeTerm}`}
+              value={termView === 'ANNUAL'
+                ? (yr?.yearAverage != null ? `${yr.yearAverage.toFixed(2)}/20` : '—')
+                : (activeTermResult?.termAverage != null ? `${activeTermResult.termAverage.toFixed(2)}/20` : '—')
+              }
+              highlight={termView === 'ANNUAL'
+                ? (yr?.yearAverage != null ? yr.yearAverage >= 10 : undefined)
+                : (activeTermResult?.termAverage != null ? activeTermResult.termAverage >= 10 : undefined)
+              }
+            />
+            {termView === 'ANNUAL' && (
+              <InfoPill label="Filière" value={yr?.suggestedBranch ?? student.branch ?? '—'} />
+            )}
+            {termView === 'ANNUAL' && (
+              <div>
+                <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: '#8392a5' }}>Statut</p>
+                <PromotionBadge status={yr?.promotionStatus ?? null} />
+              </div>
+            )}
           </div>
         </div>
       </div>
 
+        {/* Progression report */}
+        <StudentProgressionCard student={student} classStudents={classStudents} currentTerm={activeTerm} isAnnual={termView === 'ANNUAL'} />
+
       {/* Term summary cards */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* <div className="grid grid-cols-3 gap-4">
         {(['T1', 'T2', 'T3'] as const).map(tid => {
           const tr = yr?.termResults.find(t => t.termId === tid);
           return (
@@ -115,31 +192,41 @@ export default function StudentDetail({ student, classStudents, onBack, photoUrl
             </div>
           );
         })}
+      </div> */}
+
+      
+      {/* Student alerts */}
+      {/* {studentAlerts.length > 0 && (
+        <div className="space-y-1.5">
+          {studentAlerts.map((a, i) => {
+            const sc: Record<string, { bg: string; color: string; border: string }> = {
+              danger: { bg: '#fce8ea', color: '#dc3545', border: '#f5c6cb' },
+              warning: { bg: '#fff8e1', color: '#856404', border: '#ffeeba' },
+              success: { bg: '#e6f9ef', color: '#166534', border: '#c3e6cb' },
+              info: { bg: '#dbeafe', color: '#1e40af', border: '#bfdbfe' },
+            };
+            const s = sc[a.severity];
+            return (
+              <div key={i} className="text-[11px] px-4 py-2 rounded border" style={{ background: s.bg, color: s.color, borderColor: s.border }}>
+                {a.message}
+              </div>
+            );
+          })}
+        </div>
+      )} */}
+
+      {/* Radar + Progression side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Radar disciplinaire */}
+        <RadarDisciplinaire student={student} classStudents={classStudents} termId={activeTerm} />
+
+        {/* Progression report */}
+        <StudentProgression student={student} classStudents={classStudents} currentTerm={activeTerm} isAnnual={termView === 'ANNUAL'} />
       </div>
 
-      {/* Evolution chart */}
-      {evolutionData.some(d => d.studentAvg != null) && (
-        <div className="card-cassie p-5">
-          <h6 className="font-medium text-sm mb-4" style={{ color: '#06072d' }}>Évolution trimestrielle</h6>
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={evolutionData} margin={{ left: 10, right: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e6e7ef" />
-              <XAxis dataKey="term" tick={{ fontSize: 12, fill: '#575d78' }} />
-              <YAxis domain={[0, 20]} tick={{ fontSize: 11, fill: '#8392a5' }} />
-              <ReferenceLine y={10} stroke="#dc3545" strokeDasharray="3 3" label={{ value: '10', fill: '#dc3545', fontSize: 10 }} />
-              <Tooltip formatter={(v) => typeof v === 'number' ? `${v.toFixed(2)}/20` : '—'} />
-              <Legend />
-              <Line type="monotone" dataKey="studentAvg" name="Élève" stroke="#009A44" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-              {classStudents.length > 1 && (
-                <Line type="monotone" dataKey="classAvg" name="Moy. classe" stroke="#FF8200" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} connectNulls />
-              )}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* Per-term subject breakdown — accordion */}
-      {student.termMarks.map(tm => (
+     
+      {/* Per-term subject breakdown */}
+      {(termView === 'ANNUAL' ? student.termMarks : student.termMarks.filter(tm => tm.termId === activeTerm)).map(tm => (
         <div key={tm.termId} className="card-cassie overflow-hidden">
           <div
             className="px-5 py-4 flex items-center justify-between cursor-pointer select-none hover:bg-[#f9f9fd] transition-colors"
