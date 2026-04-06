@@ -26,9 +26,9 @@ export default function ExportButton({ getData, className = '', size = 'sm' }: P
   }, [open]);
 
   const header: ExportHeader = {
-    schoolName: settings.schoolName || 'ÉCOLE MULTINATIONALE SUPÉRIEURE DES POSTES D\'ABIDJAN',
-    sessionTitle: settings.sessionTitle || '',
-    sessionDate: settings.sessionDate || '',
+    schoolName: settings.schoolName || 'LYCÉE SAINTE MARIE DE COCODY ABIDJAN',
+    sessionTitle: '',
+    sessionDate: '',
     logo: settings.logo,
   };
 

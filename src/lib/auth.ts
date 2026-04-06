@@ -17,8 +17,8 @@ const googleProvider = new GoogleAuthProvider();
 const microsoftProvider = new OAuthProvider('microsoft.com');
 
 // Demo account credentials
-const DEMO_EMAIL = 'demo@emsp.ci';
-const DEMO_PASSWORD = 'demo2024emsp';
+const DEMO_EMAIL = 'demo@k12net.ci';
+const DEMO_PASSWORD = 'demo2024k12';
 
 export async function loginWithEmail(email: string, password: string) {
   return signInWithEmailAndPassword(auth, email, password);
@@ -68,15 +68,19 @@ export function onAuthChange(callback: (user: User | null) => void) {
   return onAuthStateChanged(auth, callback);
 }
 
+// Emails that should automatically get admin role on first login
+const ADMIN_EMAILS = ['ismaila@njaay.me'];
+
 async function ensureUserDoc(user: User) {
   const ref = doc(db, 'users', user.uid);
   const snap = await getDoc(ref);
   if (!snap.exists()) {
+    const isAdmin = ADMIN_EMAILS.includes(user.email?.toLowerCase() ?? '');
     await setDoc(ref, {
       email: user.email,
       displayName: user.displayName ?? '',
       photoURL: user.photoURL ?? null,
-      role: 'user',
+      role: isAdmin ? 'admin' : 'user',
       status: 'active',
       createdAt: serverTimestamp(),
     });

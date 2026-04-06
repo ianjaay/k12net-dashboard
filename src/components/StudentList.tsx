@@ -1,62 +1,164 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Search, ChevronUp, ChevronDown } from 'lucide-react';
-import type { Student, StudentStatus, SemesterView } from '../types';
-import { StatusBadge } from './Dashboard';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { Search, ChevronUp, ChevronDown, Filter } from 'lucide-react';
+import type { K12Student, PromotionStatus, TermView } from '../types/k12';
+import { PromotionBadge, DistinctionBadge, SanctionBadge } from './Dashboard';
 import ExportButton from './ExportButton';
 import type { ExportTableData } from '../utils/exportTable';
+import { useSession } from '../contexts/SessionContext';
 
 interface Props {
-  students: Student[];
-  onStudentClick: (student: Student) => void;
-  hasBothSemesters?: boolean;
-  semesterView?: SemesterView;
-  onSemesterViewChange?: (v: SemesterView) => void;
+  students: K12Student[];
+  termView: TermView;
+  onTermViewChange: (v: TermView) => void;
+  onStudentClick: (student: K12Student) => void;
+  onFilteredChange?: (matricules: string[]) => void;
 }
 
-type SortKey = 'rank' | 'name' | 'semesterAverage' | 's1Average' | 's2Average' | 'totalCredits' | 'status';
+type SortKey = 'rank' | 'name' | 'avg' | 'yearAvg' | 't1Avg' | 't2Avg' | 't3Avg' | 'status';
 type SortDir = 'asc' | 'desc';
 
-export default function StudentList({ students, onStudentClick, hasBothSemesters, semesterView, onSemesterViewChange }: Props) {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StudentStatus | 'ALL'>('ALL');
-  const [sessionFilter, setSessionFilter] = useState<'ALL' | 'S1' | 'SR'>('ALL');
-  const [sortKey, setSortKey] = useState<SortKey>('semesterAverage');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+function getTermAvg(s: K12Student, tid: 'T1' | 'T2' | 'T3'): number | null {
+  return s.yearResult?.termResults.find(t => t.termId === tid)?.termAverage ?? null;
+}
+
+function getTermRank(s: K12Student, tid: 'T1' | 'T2' | 'T3'): number | null {
+  return s.yearResult?.termResults.find(t => t.termId === tid)?.rank ?? null;
+}
+
+function getAvgForView(s: K12Student, view: TermView): number | null {
+  return view === 'ANNUAL' ? (s.yearResult?.yearAverage ?? null) : getTermAvg(s, view as 'T1' | 'T2' | 'T3');
+}
+
+function getRankForView(s: K12Student, view: TermView): number | null {
+  return view === 'ANNUAL' ? (s.yearResult?.rank ?? null) : getTermRank(s, view as 'T1' | 'T2' | 'T3');
+}
+
+export default function StudentList({ students, termView, onTermViewChange, onStudentClick, onFilteredChange }: Props) {
+  const { studentListFilters, setStudentListFilters } = useSession();
+
+  // Derive local values from persisted filters
+  const search = studentListFilters.search;
+  const statusFilter = studentListFilters.statusFilter;
+  const sortKey = studentListFilters.sortKey as SortKey;
+  const sortDir = studentListFilters.sortDir as SortDir;
+  const markMin = studentListFilters.markMin;
+  const markMax = studentListFilters.markMax;
+  const selectedDistSanc = useMemo(() => new Set(studentListFilters.selectedDistSanc), [studentListFilters.selectedDistSanc]);
+
+  // Setters that update context
+  const setSearch = useCallback((v: string) => setStudentListFilters({ ...studentListFilters, search: v }), [studentListFilters, setStudentListFilters]);
+  const setStatusFilter = useCallback((v: PromotionStatus | 'ALL') => setStudentListFilters({ ...studentListFilters, statusFilter: v }), [studentListFilters, setStudentListFilters]);
+  const setSortKey = useCallback((v: SortKey) => setStudentListFilters({ ...studentListFilters, sortKey: v }), [studentListFilters, setStudentListFilters]);
+  const setSortDir = useCallback((v: SortDir) => setStudentListFilters({ ...studentListFilters, sortDir: v }), [studentListFilters, setStudentListFilters]);
+  const setMarkMin = useCallback((v: number | null) => setStudentListFilters({ ...studentListFilters, markMin: v }), [studentListFilters, setStudentListFilters]);
+  const setMarkMax = useCallback((v: number | null) => setStudentListFilters({ ...studentListFilters, markMax: v }), [studentListFilters, setStudentListFilters]);
+  const setSelectedDistSanc = useCallback((updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    const next = typeof updater === 'function' ? updater(new Set(studentListFilters.selectedDistSanc)) : updater;
+    setStudentListFilters({ ...studentListFilters, selectedDistSanc: [...next] });
+  }, [studentListFilters, setStudentListFilters]);
+
+  const [distSancOpen, setDistSancOpen] = useState(false);
+  const distSancRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (distSancRef.current && !distSancRef.current.contains(e.target as Node)) setDistSancOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const toggleDistSanc = (val: string) => {
+    setSelectedDistSanc(prev => {
+      const next = new Set(prev);
+      if (next.has(val)) next.delete(val); else next.add(val);
+      return next;
+    });
+  };
+
+  const DIST_OPTIONS: { value: string; label: string; color: string }[] = [
+    { value: 'THF', label: 'THF', color: '#22d273' },
+    { value: 'THFR', label: 'THFR', color: '#86efac' },
+    { value: 'THE', label: 'THE', color: '#5556fd' },
+    { value: 'THER', label: 'THER', color: '#a5b4fc' },
+    { value: 'TH', label: 'TH', color: '#ffc107' },
+    { value: 'THR', label: 'THR', color: '#c8a44a' },
+  ];
+  const SANC_OPTIONS: { value: string; label: string; color: string }[] = [
+    { value: 'BTI', label: 'BTI', color: '#dc3545' },
+    { value: 'AVT', label: 'AVT', color: '#fca665' },
+    { value: 'BMC', label: 'BMC', color: '#7c3aed' },
+    { value: 'AMC', label: 'AMC', color: '#c084fc' },
+  ];
 
   const filtered = useMemo(() => {
     let list = [...students];
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(s =>
-        s.name.toLowerCase().includes(q) || s.matricule.toLowerCase().includes(q)
+        s.fullName.toLowerCase().includes(q) || s.matricule.toLowerCase().includes(q)
       );
     }
-    if (statusFilter !== 'ALL') list = list.filter(s => s.status === statusFilter);
-    if (sessionFilter !== 'ALL') list = list.filter(s => s.session === sessionFilter);
+    if (statusFilter !== 'ALL') list = list.filter(s => s.yearResult?.promotionStatus === statusFilter);
+
+    // Mark range filter
+    if (markMin != null || markMax != null) {
+      list = list.filter(s => {
+        const avg = getAvgForView(s, termView);
+        if (avg == null) return false;
+        if (markMin != null && avg < markMin) return false;
+        if (markMax != null && avg > markMax) return false;
+        return true;
+      });
+    }
+
+    // Distinction/Sanction filter
+    if (selectedDistSanc.size > 0) {
+      list = list.filter(s => {
+        const yr = s.yearResult;
+        if (!yr) return false;
+        if (termView === 'ANNUAL') {
+          const dist = yr.termResults.slice().reverse().find(t => t.distinction != null)?.distinction;
+          const sanc = yr.termResults.slice().reverse().find(t => t.sanction != null)?.sanction;
+          return (dist != null && selectedDistSanc.has(dist)) || (sanc != null && selectedDistSanc.has(sanc));
+        }
+        const tr = yr.termResults.find(t => t.termId === termView);
+        return (tr?.distinction != null && selectedDistSanc.has(tr.distinction)) || (tr?.sanction != null && selectedDistSanc.has(tr.sanction));
+      });
+    }
+
+    // For term views, only show students with data for that term
+    if (termView !== 'ANNUAL') {
+      const tid = termView as 'T1' | 'T2' | 'T3';
+      list = list.filter(s => getTermAvg(s, tid) != null);
+    }
+
     list.sort((a, b) => {
       let va: number | string = 0;
       let vb: number | string = 0;
-      if (sortKey === 's1Average') {
-        va = a.s1Average ?? 0;
-        vb = b.s1Average ?? 0;
-      } else if (sortKey === 's2Average') {
-        va = a.s2Average ?? 0;
-        vb = b.s2Average ?? 0;
-      } else {
-        va = a[sortKey] ?? 0;
-        vb = b[sortKey] ?? 0;
-      }
-      if (typeof va === 'string') va = va.toLowerCase();
-      if (typeof vb === 'string') vb = vb.toLowerCase();
+      if (sortKey === 'name') { va = a.fullName.toLowerCase(); vb = b.fullName.toLowerCase(); }
+      else if (sortKey === 'avg') { va = getAvgForView(a, termView) ?? 0; vb = getAvgForView(b, termView) ?? 0; }
+      else if (sortKey === 'yearAvg') { va = a.yearResult?.yearAverage ?? 0; vb = b.yearResult?.yearAverage ?? 0; }
+      else if (sortKey === 't1Avg') { va = getTermAvg(a, 'T1') ?? 0; vb = getTermAvg(b, 'T1') ?? 0; }
+      else if (sortKey === 't2Avg') { va = getTermAvg(a, 'T2') ?? 0; vb = getTermAvg(b, 'T2') ?? 0; }
+      else if (sortKey === 't3Avg') { va = getTermAvg(a, 'T3') ?? 0; vb = getTermAvg(b, 'T3') ?? 0; }
+      else if (sortKey === 'rank') { va = getRankForView(a, termView) ?? 999; vb = getRankForView(b, termView) ?? 999; }
+      else if (sortKey === 'status') { va = a.yearResult?.promotionStatus ?? ''; vb = b.yearResult?.promotionStatus ?? ''; }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
       if (va > vb) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
     return list;
-  }, [students, search, statusFilter, sessionFilter, sortKey, sortDir]);
+  }, [students, search, statusFilter, markMin, markMax, selectedDistSanc, sortKey, sortDir, termView]);
+
+  // Report filtered list to parent for prev/next navigation
+  useEffect(() => {
+    onFilteredChange?.(filtered.map(s => s.matricule));
+  }, [filtered, onFilteredChange]);
 
   const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    if (sortKey === key) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('desc'); }
   };
 
@@ -65,51 +167,58 @@ export default function StudentList({ students, onStudentClick, hasBothSemesters
       ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)
       : <ChevronDown className="w-3 h-3" style={{ color: '#c0ccda' }} />;
 
-  // Show S1/S2 columns when viewing annual data
-  const showTermColumns = hasBothSemesters && semesterView === 'ANNUAL';
-
   const getExportData = useCallback((): ExportTableData => {
-    const cols = showTermColumns
-      ? ['Rang', 'Matricule', 'Nom', 'Moy. S1', 'Moy. S2', 'Moyenne', 'Crédits', 'Statut', 'Session']
-      : ['Rang', 'Matricule', 'Nom', 'Moyenne', 'Crédits', 'Statut', 'Session'];
+    if (termView === 'ANNUAL') {
+      const cols = ['Rang', 'Matricule', 'Nom', 'Moy. T1', 'Moy. T2', 'Moy. T3', 'Moy. Annuelle', 'Statut', 'Filière'];
+      const rows = filtered.map(s => [
+        s.yearResult?.rank ?? '—',
+        s.matricule,
+        s.fullName,
+        getTermAvg(s, 'T1')?.toFixed(2) ?? '—',
+        getTermAvg(s, 'T2')?.toFixed(2) ?? '—',
+        getTermAvg(s, 'T3')?.toFixed(2) ?? '—',
+        s.yearResult?.yearAverage?.toFixed(2) ?? '—',
+        s.yearResult?.promotionStatus ?? '—',
+        s.branch ?? '—',
+      ]);
+      return { title: 'Liste des élèves — Annuel', columns: cols, rows, filename: 'liste_eleves_annuel' };
+    }
+    const tid = termView as 'T1' | 'T2' | 'T3';
+    const cols = ['Rang', 'Matricule', 'Nom', `Moyenne ${tid}`, 'Distinction', 'Sanction'];
     const rows = filtered.map(s => {
-      const rankStr = `${s.rank === 1 ? '1er' : `${s.rank}e`}${s.isExAequo ? ' ex' : ''}`;
-      const base = [rankStr, s.matricule, s.name];
-      if (showTermColumns) {
-        base.push(s.s1Average != null ? s.s1Average.toFixed(2) : '—');
-        base.push(s.s2Average != null ? s.s2Average.toFixed(2) : '—');
-      }
-      base.push(s.semesterAverage.toFixed(2));
-      base.push(`${s.totalCredits}/${s.ueResults.reduce((a, u) => a + u.totalCredits, 0)}`);
-      base.push(s.status);
-      base.push(s.session ?? 'S1');
-      return base;
+      const tr = s.yearResult?.termResults.find(t => t.termId === tid);
+      return [
+        tr?.rank ?? '—',
+        s.matricule,
+        s.fullName,
+        tr?.termAverage?.toFixed(2) ?? '—',
+        tr?.distinction ?? '—',
+        tr?.sanction ?? '—',
+      ];
     });
-    return { title: 'Liste des étudiants', columns: cols, rows, filename: 'liste_etudiants' };
-  }, [filtered, showTermColumns]);
+    return { title: `Liste des élèves — ${tid}`, columns: cols, rows, filename: `liste_eleves_${tid.toLowerCase()}` };
+  }, [filtered, termView]);
 
   return (
     <div className="space-y-4">
       {/* Filters */}
       <div className="card-cassie p-4 flex flex-wrap gap-3 items-center">
         {/* Term toggle */}
-        {hasBothSemesters && onSemesterViewChange && (
-          <div className="flex items-center rounded p-0.5 shrink-0" style={{ background: '#f3f6f9' }}>
-            {(['S1', 'S2', 'ANNUAL'] as const).map(sv => (
-              <button
-                key={sv}
-                onClick={() => onSemesterViewChange(sv)}
-                className="px-3 py-1.5 text-xs font-medium rounded transition-all"
-                style={semesterView === sv
-                  ? { background: '#5556fd', color: 'white' }
-                  : { color: '#575d78' }
-                }
-              >
-                {sv === 'ANNUAL' ? 'Annuel' : sv}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="flex items-center rounded p-0.5 shrink-0" style={{ background: '#f3f6f9' }}>
+          {(['T1', 'T2', 'T3', 'ANNUAL'] as const).map(tv => (
+            <button
+              key={tv}
+              onClick={() => onTermViewChange(tv)}
+              className="px-3 py-1.5 text-xs font-medium rounded transition-all"
+              style={termView === tv
+                ? { background: '#5556fd', color: 'white' }
+                : { color: '#575d78' }
+              }
+            >
+              {tv === 'ANNUAL' ? 'Annuel' : tv}
+            </button>
+          ))}
+        </div>
         <div className="relative flex-1 min-w-48">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#c0ccda' }} />
           <input
@@ -121,27 +230,99 @@ export default function StudentList({ students, onStudentClick, hasBothSemesters
             style={{ borderColor: '#e6e7ef', color: '#373857' }}
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value as StudentStatus | 'ALL')}
-          className="cassie-select py-2 px-3 text-sm border rounded focus:outline-none"
-          style={{ borderColor: '#e6e7ef', color: '#575d78' }}
-        >
-          <option value="ALL">Tous les statuts</option>
-          <option value="ADMIS">Admis</option>
-          <option value="AUTORISÉ">Autorisés</option>
-          <option value="AJOURNÉ">Ajournés</option>
-        </select>
-        <select
-          value={sessionFilter}
-          onChange={e => setSessionFilter(e.target.value as 'ALL' | 'S1' | 'SR')}
-          className="cassie-select py-2 px-3 text-sm border rounded focus:outline-none"
-          style={{ borderColor: '#e6e7ef', color: '#575d78' }}
-        >
-          <option value="ALL">Toutes sessions</option>
-          <option value="S1">Session 1</option>
-          <option value="SR">Session de Rattrapage</option>
-        </select>
+        {termView === 'ANNUAL' && (
+          <select
+            value={statusFilter ?? 'ALL'}
+            onChange={e => setStatusFilter(e.target.value === 'ALL' ? 'ALL' : e.target.value as PromotionStatus)}
+            className="cassie-select py-2 px-3 text-sm border rounded focus:outline-none"
+            style={{ borderColor: '#e6e7ef', color: '#575d78' }}
+          >
+            <option value="ALL">Tous les statuts</option>
+            <option value="ADMIS">Admis</option>
+            <option value="REDOUBLE">Redouble</option>
+            <option value="EXCLU">Exclu</option>
+          </select>
+        )}
+
+        {/* Mark range filter */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[10px] font-medium" style={{ color: '#8392a5' }}>Moy.</span>
+          <input
+            type="number" min={0} max={20} step={0.5}
+            value={markMin ?? ''} placeholder="Min"
+            onChange={e => setMarkMin(e.target.value === '' ? null : Number(e.target.value))}
+            className="text-xs font-medium rounded px-2 py-1.5 border w-14 text-center focus:outline-none focus:ring-1"
+            style={{ borderColor: '#e6e7ef', color: '#5556fd', background: '#f9f9fd' }}
+          />
+          <span className="text-[10px]" style={{ color: '#c0ccda' }}>–</span>
+          <input
+            type="number" min={0} max={20} step={0.5}
+            value={markMax ?? ''} placeholder="Max"
+            onChange={e => setMarkMax(e.target.value === '' ? null : Number(e.target.value))}
+            className="text-xs font-medium rounded px-2 py-1.5 border w-14 text-center focus:outline-none focus:ring-1"
+            style={{ borderColor: '#e6e7ef', color: '#5556fd', background: '#f9f9fd' }}
+          />
+        </div>
+
+        {/* Distinction / Sanction multi-select */}
+        <div className="relative" ref={distSancRef}>
+          <button
+            onClick={() => setDistSancOpen(!distSancOpen)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded transition-colors"
+            style={{
+              borderColor: selectedDistSanc.size > 0 ? '#5556fd' : '#e6e7ef',
+              color: selectedDistSanc.size > 0 ? '#5556fd' : '#575d78',
+              background: selectedDistSanc.size > 0 ? '#f0f0ff' : '#fff',
+            }}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            {selectedDistSanc.size > 0 ? `${selectedDistSanc.size} sélection(s)` : 'Dist. / Sanct.'}
+            <ChevronDown className="w-3 h-3" />
+          </button>
+          {distSancOpen && (
+            <div className="absolute top-full left-0 mt-1 z-20 bg-white border rounded-lg shadow-lg py-1 w-44" style={{ borderColor: '#e6e7ef' }}>
+              <p className="text-[9px] uppercase tracking-widest font-medium px-3 py-1" style={{ color: '#8392a5' }}>Distinctions</p>
+              {DIST_OPTIONS.map(opt => (
+                <label key={opt.value} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#f9f9fd] cursor-pointer text-xs" style={{ color: '#575d78' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDistSanc.has(opt.value)}
+                    onChange={() => toggleDistSanc(opt.value)}
+                    className="rounded"
+                  />
+                  <span className="w-2 h-2 rounded-full" style={{ background: opt.color }} />
+                  {opt.label}
+                </label>
+              ))}
+              <hr className="my-1" style={{ borderColor: '#e6e7ef' }} />
+              <p className="text-[9px] uppercase tracking-widest font-medium px-3 py-1" style={{ color: '#8392a5' }}>Sanctions</p>
+              {SANC_OPTIONS.map(opt => (
+                <label key={opt.value} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#f9f9fd] cursor-pointer text-xs" style={{ color: '#575d78' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDistSanc.has(opt.value)}
+                    onChange={() => toggleDistSanc(opt.value)}
+                    className="rounded"
+                  />
+                  <span className="w-2 h-2 rounded-full" style={{ background: opt.color }} />
+                  {opt.label}
+                </label>
+              ))}
+              {selectedDistSanc.size > 0 && (
+                <>
+                  <hr className="my-1" style={{ borderColor: '#e6e7ef' }} />
+                  <button
+                    onClick={() => { setSelectedDistSanc(new Set()); setDistSancOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-[#fce8ea] transition-colors"
+                    style={{ color: '#dc3545' }}
+                  >
+                    Effacer tout
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
         <span className="text-xs ml-auto" style={{ color: '#8392a5' }}>{filtered.length}/{students.length}</span>
         <ExportButton getData={getExportData} />
       </div>
@@ -153,94 +334,107 @@ export default function StudentList({ students, onStudentClick, hasBothSemesters
             <thead>
               <tr style={{ background: '#f9f9fd' }}>
                 <SortHeader label="Rang" k="rank" onSort={toggleSort} icon={<SortIcon k="rank" />} />
-                <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#8392a5' }}>Matricule</th>
-                <SortHeader label="Nom" k="name" onSort={toggleSort} icon={<SortIcon k="name" />} />
-                {showTermColumns && (
-                  <SortHeader label="Moy. S1" k="s1Average" onSort={toggleSort} icon={<SortIcon k="s1Average" />} />
+                <SortHeader label="Élève" k="name" onSort={toggleSort} icon={<SortIcon k="name" />} />
+                {termView === 'ANNUAL' ? (
+                  <>
+                    <SortHeader label="Moy. T1" k="t1Avg" onSort={toggleSort} icon={<SortIcon k="t1Avg" />} />
+                    <SortHeader label="Moy. T2" k="t2Avg" onSort={toggleSort} icon={<SortIcon k="t2Avg" />} />
+                    <SortHeader label="Moy. T3" k="t3Avg" onSort={toggleSort} icon={<SortIcon k="t3Avg" />} />
+                    <SortHeader label="Moy. Annuelle" k="yearAvg" onSort={toggleSort} icon={<SortIcon k="yearAvg" />} />
+                    <SortHeader label="Statut" k="status" onSort={toggleSort} icon={<SortIcon k="status" />} />
+                    <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#8392a5' }}>Filière</th>
+                  </>
+                ) : (
+                  <>
+                    <SortHeader label={`Moyenne ${termView}`} k="avg" onSort={toggleSort} icon={<SortIcon k="avg" />} />
+                    <th className="px-4 py-3 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Distinction</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Sanction</th>
+                  </>
                 )}
-                {showTermColumns && (
-                  <SortHeader label="Moy. S2" k="s2Average" onSort={toggleSort} icon={<SortIcon k="s2Average" />} />
-                )}
-                <SortHeader label={showTermColumns ? 'Moy. Annuelle' : 'Moyenne'} k="semesterAverage" onSort={toggleSort} icon={<SortIcon k="semesterAverage" />} />
-                <SortHeader label="Crédits" k="totalCredits" onSort={toggleSort} icon={<SortIcon k="totalCredits" />} />
-                <SortHeader label="Statut" k="status" onSort={toggleSort} icon={<SortIcon k="status" />} />
-                <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#8392a5' }}>Session</th>
-                <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#8392a5' }}>Repêchage</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(s => (
-                <tr
-                  key={s.matricule}
-                  className="border-b cursor-pointer hover:bg-[#f9f9fd] transition-colors"
-                  style={{ borderColor: '#f3f6f9' }}
-                  onClick={() => onStudentClick(s)}
-                >
-                  <td className="px-4 py-3 font-bold text-center" style={{ color: '#c0ccda' }}>
-                    {s.rank === 1 ? '1er' : `${s.rank}e`}{s.isExAequo && <span className="text-[10px] ml-1" style={{ color: '#5556fd' }}>ex</span>}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs" style={{ color: '#8392a5' }}>{s.matricule}</td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium" style={{ color: '#06072d' }}>{s.name}</div>
-                  </td>
-                  {showTermColumns && (
-                    <td className="px-4 py-3">
-                      {s.s1Average != null ? (
-                        <span className="font-medium" style={{ color: s.s1Average >= 10 ? '#22d273' : '#dc3545' }}>
-                          {s.s1Average.toFixed(2)}
-                        </span>
-                      ) : (
-                        <span style={{ color: '#c0ccda' }}>—</span>
+              {filtered.map(s => {
+                const yr = s.yearResult;
+                const activeTermResult = termView !== 'ANNUAL'
+                  ? yr?.termResults.find(t => t.termId === termView)
+                  : null;
+                const displayRank = termView === 'ANNUAL' ? yr?.rank : activeTermResult?.rank;
+                const displayTotal = termView === 'ANNUAL' ? yr?.totalStudents : activeTermResult?.totalStudents;
+                // For ANNUAL view, pick latest term with data for distinction/sanction
+                const displayDistinction = termView !== 'ANNUAL'
+                  ? (activeTermResult?.distinction ?? null)
+                  : (yr?.termResults.slice().reverse().find(t => t.distinction != null)?.distinction ?? null);
+                const displaySanction = termView !== 'ANNUAL'
+                  ? (activeTermResult?.sanction ?? null)
+                  : (yr?.termResults.slice().reverse().find(t => t.sanction != null)?.sanction ?? null);
+                return (
+                  <tr
+                    key={s.id}
+                    className="border-b cursor-pointer hover:bg-[#f9f9fd] transition-colors"
+                    style={{ borderColor: '#f3f6f9' }}
+                    onClick={() => onStudentClick(s)}
+                  >
+                    <td className="px-4 py-3 text-center" style={{ color: '#575d78' }}>
+                      {displayRank != null ? (
+                        <span className="font-bold" style={{ color: '#06072d' }}>{displayRank}</span>
+                      ) : '—'}
+                      {displayTotal != null && displayRank != null && (
+                        <span className="text-[10px] ml-0.5" style={{ color: '#c0ccda' }}>/{displayTotal}</span>
                       )}
                     </td>
-                  )}
-                  {showTermColumns && (
                     <td className="px-4 py-3">
-                      {s.s2Average != null ? (
-                        <span className="font-medium" style={{ color: s.s2Average >= 10 ? '#22d273' : '#dc3545' }}>
-                          {s.s2Average.toFixed(2)}
-                        </span>
-                      ) : (
-                        <span style={{ color: '#c0ccda' }}>—</span>
-                      )}
+                      <div className="font-medium" style={{ color: '#06072d' }}>{s.fullName}</div>
+                      <div className="text-xs" style={{ color: '#8392a5' }}>
+                        <span className="font-mono">{s.matricule}</span> · {s.className}
+                      </div>
                     </td>
-                  )}
-                  <td className="px-4 py-3">
-                    <span className="font-bold" style={{ color: s.semesterAverage >= 10 ? '#22d273' : '#dc3545' }}>
-                      {s.semesterAverage.toFixed(2)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-1.5 rounded-full" style={{
-                        width: `${Math.round((s.totalCredits / Math.max(s.ueResults.reduce((acc, u) => acc + u.totalCredits, 0), 1)) * 48)}px`,
-                        background: '#5556fd',
-                        opacity: 0.5
-                      }} />
-                      <span style={{ color: '#575d78' }}>{s.totalCredits}/{s.ueResults.reduce((acc, u) => acc + u.totalCredits, 0)}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
-                  <td className="px-4 py-3 text-xs">
-                    {s.session === 'SR' ? (
-                      <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: '#f0e6ff', color: '#7c3aed' }}>SR</span>
-                    ) : <span style={{ color: '#8392a5' }}>S1</span>}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {s.eligibleRepechage && (
-                      <span className="text-[11px] px-2 py-0.5 rounded font-medium" style={{ background: '#fff5eb', color: '#b86e1d' }}>Éligible</span>
+                    {termView === 'ANNUAL' ? (
+                      <>
+                        <AvgCell value={getTermAvg(s, 'T1')} />
+                        <AvgCell value={getTermAvg(s, 'T2')} />
+                        <AvgCell value={getTermAvg(s, 'T3')} />
+                        <td className="px-4 py-3">
+                          <span className="font-bold" style={{ color: (yr?.yearAverage ?? 0) >= 10 ? '#22d273' : '#dc3545' }}>
+                            {yr?.yearAverage?.toFixed(2) ?? '—'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3"><PromotionBadge status={yr?.promotionStatus ?? null} /></td>
+                        <td className="px-4 py-3 text-xs" style={{ color: '#575d78' }}>{s.branch ?? '—'}</td>
+                      </>
+                    ) : (
+                      <>
+                        <AvgCell value={getTermAvg(s, termView as 'T1' | 'T2' | 'T3')} />
+                        <td className="px-4 py-3 text-center">
+                          <DistinctionBadge distinction={displayDistinction} />
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <SanctionBadge sanction={displaySanction} />
+                        </td>
+                      </>
                     )}
-                  </td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
         {filtered.length === 0 && (
-          <div className="text-center py-12" style={{ color: '#c0ccda' }}>Aucun étudiant trouvé</div>
+          <div className="text-center py-12" style={{ color: '#c0ccda' }}>Aucun élève trouvé</div>
         )}
       </div>
     </div>
+  );
+}
+
+function AvgCell({ value }: { value: number | null }) {
+  if (value == null) return <td className="px-4 py-3" style={{ color: '#c0ccda' }}>—</td>;
+  return (
+    <td className="px-4 py-3">
+      <span className="font-medium" style={{ color: value >= 10 ? '#22d273' : '#dc3545' }}>
+        {value.toFixed(2)}
+      </span>
+    </td>
   );
 }
 

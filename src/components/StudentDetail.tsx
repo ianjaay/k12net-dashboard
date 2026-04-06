@@ -1,270 +1,321 @@
 import { useState, useMemo } from 'react';
-import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Info, ChevronDown, UserCircle } from 'lucide-react';
-import {
-  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ResponsiveContainer, Legend, Tooltip,
-} from 'recharts';
-import type { Student, StudentUEResult, StudentECUEResult } from '../types';
-import { StatusBadge } from './Dashboard';
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, UserCircle } from 'lucide-react';
+import type { K12Student, TermId, TermView } from '../types/k12';
+import { PROFILE_META } from '../types/analytics';
+import { classifyStudent } from '../utils/analyticsCalculations';
+import { PromotionBadge } from './Dashboard';
+import RadarDisciplinaire from './RadarDisciplinaire';
+import StudentProgression from './StudentProgression';
+import StudentProgressionCard from './StudentProgressionCard';
 
 interface Props {
-  student: Student;
-  classStudents: Student[];
+  student: K12Student;
+  classStudents: K12Student[];
   onBack: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  currentIndex?: number;
+  totalFiltered?: number;
   photoUrl?: string;
 }
 
-export default function StudentDetail({ student, classStudents, onBack, photoUrl }: Props) {
-  const [expandedUE, setExpandedUE] = useState<string | null>(null);
+export default function StudentDetail({ student, classStudents, onBack, onPrev, onNext, currentIndex, totalFiltered, photoUrl }: Props) {
+  const [expandedTerm, setExpandedTerm] = useState<TermId | null>(null);
+  const [termView, setTermView] = useState<TermView>('ANNUAL');
+  const [photoError, setPhotoError] = useState(false);
+  const yr = student.yearResult;
 
-  const radarData = useMemo(() => {
-    return student.ueResults.map(ue => {
-      const classAvgs = classStudents
-        .map(s => s.ueResults.find(u => u.ueCode === ue.ueCode)?.average ?? 0)
-        .filter(v => v > 0);
-      const classAvg = classAvgs.length > 0
-        ? Math.round((classAvgs.reduce((a, b) => a + b, 0) / classAvgs.length) * 100) / 100
-        : 0;
-      const name = ue.ueName.length > 22 ? ue.ueName.slice(0, 20) + '…' : ue.ueName;
-      return { ueName: name, studentAvg: ue.average, classAvg };
-    });
-  }, [student, classStudents]);
+  // Detect the latest term with data
+  const latestTerm: TermId = useMemo(() => {
+    for (const tid of ['T3', 'T2', 'T1'] as TermId[]) {
+      if (yr?.termResults.some(t => t.termId === tid && t.termAverage !== null)) return tid;
+    }
+    return 'T1';
+  }, [yr]);
+
+  // Active term for display (selected or latest)
+  const activeTerm: TermId = termView !== 'ANNUAL' ? termView as TermId : latestTerm;
+  const activeTermResult = yr?.termResults.find(t => t.termId === activeTerm) ?? null;
+
+  // Student profile
+  const profile = useMemo(() => classifyStudent(student, activeTerm), [student, activeTerm]);
+  const profileMeta = PROFILE_META[profile];
 
   return (
     <div className="space-y-5">
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        className="flex items-center gap-2 text-sm font-medium transition-colors"
-        style={{ color: '#5556fd' }}
-      >
-        <ArrowLeft className="w-4 h-4" /> Retour à la liste
-      </button>
+      {/* Back + Prev/Next + Period filter */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} className="flex items-center gap-2 text-sm font-medium transition-colors" style={{ color: '#5556fd' }}>
+            <ArrowLeft className="w-4 h-4" /> Retour à la liste
+          </button>
+          {(onPrev || onNext) && (
+            <div className="flex items-center gap-1.5 ml-2">
+              <button
+                onClick={onPrev}
+                disabled={!onPrev}
+                className="p-1.5 rounded border transition-colors"
+                style={{
+                  borderColor: onPrev ? '#e6e7ef' : '#f3f6f9',
+                  color: onPrev ? '#575d78' : '#c0ccda',
+                  background: onPrev ? '#fff' : '#f9f9fd',
+                  cursor: onPrev ? 'pointer' : 'default',
+                }}
+                title="Élève précédent"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              {currentIndex != null && totalFiltered != null && (
+                <span className="text-[11px] font-medium tabular-nums" style={{ color: '#8392a5' }}>
+                  {currentIndex + 1}/{totalFiltered}
+                </span>
+              )}
+              <button
+                onClick={onNext}
+                disabled={!onNext}
+                className="p-1.5 rounded border transition-colors"
+                style={{
+                  borderColor: onNext ? '#e6e7ef' : '#f3f6f9',
+                  color: onNext ? '#575d78' : '#c0ccda',
+                  background: onNext ? '#fff' : '#f9f9fd',
+                  cursor: onNext ? 'pointer' : 'default',
+                }}
+                title="Élève suivant"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium" style={{ color: '#8392a5' }}>Période :</span>
+          <div className="flex items-center rounded p-0.5" style={{ background: '#f3f6f9' }}>
+            {(['T1', 'T2', 'T3', 'ANNUAL'] as const).map(tv => (
+              <button
+                key={tv}
+                onClick={() => setTermView(tv)}
+                className="px-3 py-1.5 text-xs font-medium rounded transition-all"
+                style={termView === tv
+                  ? { background: '#5556fd', color: 'white' }
+                  : { color: '#575d78' }
+                }
+              >
+                {tv === 'ANNUAL' ? 'Annuel' : tv}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
-      {/* Student header card */}
+      {/* Student header */}
       <div className="card-cassie p-6">
         <div className="flex flex-wrap gap-6 items-start">
-          {/* ID Photo */}
           <div className="flex-shrink-0">
-            {photoUrl ? (
-              <img
-                src={photoUrl}
-                alt={`Photo de ${student.name}`}
+            {photoUrl && !photoError ? (
+              <img src={photoUrl} alt={`Photo de ${student.fullName}`}
                 className="rounded-lg object-cover border-2"
                 style={{ width: 90, height: 110, borderColor: '#e6e7ef', boxShadow: '0 2px 8px rgba(0,0,0,0.10)' }}
+                onError={() => setPhotoError(true)}
+                referrerPolicy="no-referrer"
               />
             ) : (
-              <div
-                className="rounded-lg flex items-center justify-center border-2"
-                style={{ width: 90, height: 110, borderColor: '#e6e7ef', background: '#f3f6f9', borderStyle: 'dashed' }}
-              >
+              <div className="rounded-lg flex items-center justify-center border-2"
+                style={{ width: 90, height: 110, borderColor: '#e6e7ef', background: '#f3f6f9', borderStyle: 'dashed' }}>
                 <UserCircle className="w-10 h-10" style={{ color: '#c0ccda' }} />
               </div>
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold" style={{ color: '#06072d' }}>{student.name}</h2>
-            <p className="font-mono text-sm" style={{ color: '#8392a5' }}>{student.matricule}</p>
+            <h2 className="text-xl font-bold" style={{ color: '#06072d' }}>{student.matricule} — {student.fullName}</h2>
+            <div className="flex flex-wrap gap-2 mt-2">
+              <span className="text-[11px] px-3 py-1 rounded" style={{ background: '#f3f6f9', color: '#637382' }}>
+                {student.className}
+              </span>
+              {student.branch && (
+                <span className="text-[11px] px-3 py-1 rounded" style={{ background: '#f0f0ff', color: '#5556fd' }}>
+                  Filière {student.branch}
+                </span>
+              )}
+              {student.isRepeating && (
+                <span className="text-[11px] px-3 py-1 rounded" style={{ background: '#fff8e1', color: '#d4a017' }}>
+                  Redoublant
+                </span>
+              )}
+              <span className="text-[11px] font-semibold px-3 py-1 rounded" style={{ background: profileMeta.bg, color: profileMeta.color }}>
+                {profileMeta.label}
+              </span>
+            </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-            <InfoPill label="Rang" value={`${student.rank === 1 ? '1er' : `${student.rank}e`}${student.isExAequo ? ' ex' : ''}`} />
-            <InfoPill label="Moyenne" value={`${student.semesterAverage.toFixed(2)}/20`} highlight={student.semesterAverage >= 10} />
-            <InfoPill label="Crédits" value={`${student.totalCredits}/${student.ueResults.reduce((s, u) => s + u.totalCredits, 0)}`} />
-            <div>
-              <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: '#8392a5' }}>Statut</p>
-              <StatusBadge status={student.status} />
-            </div>
+            <InfoPill
+              label="Rang"
+              value={termView === 'ANNUAL'
+                ? (yr ? `${yr.rank}/${yr.totalStudents}` : '—')
+                : (activeTermResult ? `${activeTermResult.rank}/${activeTermResult.totalStudents}` : '—')
+              }
+            />
+            <InfoPill
+              label={termView === 'ANNUAL' ? 'Moy. Annuelle' : `Moy. ${activeTerm}`}
+              value={termView === 'ANNUAL'
+                ? (yr?.yearAverage != null ? `${yr.yearAverage.toFixed(2)}/20` : '—')
+                : (activeTermResult?.termAverage != null ? `${activeTermResult.termAverage.toFixed(2)}/20` : '—')
+              }
+              highlight={termView === 'ANNUAL'
+                ? (yr?.yearAverage != null ? yr.yearAverage >= 10 : undefined)
+                : (activeTermResult?.termAverage != null ? activeTermResult.termAverage >= 10 : undefined)
+              }
+            />
+            {termView === 'ANNUAL' && (
+              <InfoPill label="Filière" value={yr?.suggestedBranch ?? student.branch ?? '—'} />
+            )}
+            {termView === 'ANNUAL' && (
+              <div>
+                <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: '#8392a5' }}>Statut</p>
+                <PromotionBadge status={yr?.promotionStatus ?? null} />
+              </div>
+            )}
           </div>
-        </div>
-
-        {/* Session badge */}
-        <div className="mt-4 flex flex-wrap gap-3">
-          <span className="text-[11px] px-3 py-1 rounded"
-            style={student.session === 'SR'
-              ? { background: '#f0e6ff', color: '#7c3aed' }
-              : { background: '#f3f6f9', color: '#637382' }
-            }>
-            Session {student.session === 'SR' ? 'de Rattrapage (SR)' : '1'}
-          </span>
-          {student.eligibleRepechage && (
-            <span className="text-[11px] px-3 py-1 rounded flex items-center gap-1"
-              style={{ background: '#fff5eb', color: '#b86e1d' }}>
-              <AlertTriangle className="w-3 h-3" /> Éligible au repêchage
-            </span>
-          )}
         </div>
       </div>
 
-      {/* Repêchage detail */}
-      {student.eligibleRepechage && student.repechageUECode && (
-        <div className="card-cassie p-4" style={{ borderLeft: '3px solid #fca665', background: '#fffaf5' }}>
-          <div className="flex items-start gap-2">
-            <Info className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#fca665' }} />
-            <div>
-              <p className="font-medium text-sm" style={{ color: '#b86e1d' }}>Conditions de repêchage remplies</p>
-              <p className="text-sm mt-1" style={{ color: '#8b5e24' }}>
-                L'étudiant a {student.totalCredits}/{student.ueResults.reduce((s, u) => s + u.totalCredits, 0)} crédits (≥ 80%) et la moyenne de l'UE non validée est de{' '}
-                <strong>{student.repechageUEAvg?.toFixed(2)}/20</strong> (≥ 9,50).
-              </p>
-              <p className="text-sm mt-1" style={{ color: '#8b5e24' }}>
-                UE concernée : {student.ueResults.find(u => u.ueCode === student.repechageUECode)?.ueName}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+        {/* Progression report */}
+        <StudentProgressionCard student={student} classStudents={classStudents} currentTerm={activeTerm} isAnnual={termView === 'ANNUAL'} />
 
-      {/* Radar chart — Performance par UE */}
-      {radarData.length >= 3 && (
-        <div className="card-cassie p-5">
-          <h6 className="font-medium text-sm mb-4" style={{ color: '#06072d' }}>Performance par UE</h6>
-          <ResponsiveContainer width="100%" height={320}>
-            <RadarChart data={radarData}>
-              <PolarGrid stroke="#e6e7ef" />
-              <PolarAngleAxis dataKey="ueName" tick={{ fontSize: 10, fill: '#575d78' }} />
-              <PolarRadiusAxis domain={[0, 20]} tick={{ fontSize: 9, fill: '#8392a5' }} tickCount={5} />
-              <Radar name="Étudiant" dataKey="studentAvg" stroke="#009A44" fill="#009A44" fillOpacity={0.25} />
-              {classStudents.length > 1 && (
-                <Radar name="Moyenne classe" dataKey="classAvg" stroke="#FF8200" fill="#FF8200" fillOpacity={0.1} />
+      {/* Term summary cards */}
+      {/* <div className="grid grid-cols-3 gap-4">
+        {(['T1', 'T2', 'T3'] as const).map(tid => {
+          const tr = yr?.termResults.find(t => t.termId === tid);
+          return (
+            <div key={tid} className="card-cassie p-4">
+              <p className="text-[10px] uppercase tracking-widest mb-2" style={{ color: '#8392a5' }}>{tid}</p>
+              <p className="text-2xl font-bold" style={{
+                color: tr?.termAverage != null ? (tr.termAverage >= 10 ? '#22d273' : '#dc3545') : '#c0ccda',
+                fontFamily: "'Oswald', sans-serif",
+              }}>
+                {tr?.termAverage?.toFixed(2) ?? '—'}
+              </p>
+              <p className="text-[10px] mt-1" style={{ color: '#8392a5' }}>/20</p>
+              <div className="flex flex-wrap gap-1 mt-2">
+                <DistinctionBadge distinction={tr?.distinction ?? null} />
+                <SanctionBadge sanction={tr?.sanction ?? null} />
+              </div>
+              {tr && (
+                <p className="text-[10px] mt-2" style={{ color: '#8392a5' }}>
+                  Rang : {tr.rank}/{tr.totalStudents}
+                </p>
               )}
-              <Legend />
-              <Tooltip formatter={(v) => typeof v === 'number' ? `${v.toFixed(2)}/20` : ""} />
-            </RadarChart>
-          </ResponsiveContainer>
+            </div>
+          );
+        })}
+      </div> */}
+
+      
+      {/* Student alerts */}
+      {/* {studentAlerts.length > 0 && (
+        <div className="space-y-1.5">
+          {studentAlerts.map((a, i) => {
+            const sc: Record<string, { bg: string; color: string; border: string }> = {
+              danger: { bg: '#fce8ea', color: '#dc3545', border: '#f5c6cb' },
+              warning: { bg: '#fff8e1', color: '#856404', border: '#ffeeba' },
+              success: { bg: '#e6f9ef', color: '#166534', border: '#c3e6cb' },
+              info: { bg: '#dbeafe', color: '#1e40af', border: '#bfdbfe' },
+            };
+            const s = sc[a.severity];
+            return (
+              <div key={i} className="text-[11px] px-4 py-2 rounded border" style={{ background: s.bg, color: s.color, borderColor: s.border }}>
+                {a.message}
+              </div>
+            );
+          })}
         </div>
-      )}
+      )} */}
 
-      {/* UE / ECUE breakdown — Accordion */}
-      {student.ueResults.map(ue => (
-        <UECard
-          key={ue.ueCode}
-          ue={ue}
-          expanded={expandedUE === ue.ueCode}
-          onToggle={() => setExpandedUE(expandedUE === ue.ueCode ? null : ue.ueCode)}
-        />
-      ))}
-    </div>
-  );
-}
+      {/* Radar + Progression side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Radar disciplinaire */}
+        <RadarDisciplinaire student={student} classStudents={classStudents} termId={activeTerm} />
 
-function UECard({ ue, expanded, onToggle }: { ue: StudentUEResult; expanded: boolean; onToggle: () => void }) {
-  const borderColor = ue.validated
-    ? ue.compensated ? '#ffc107' : '#22d273'
-    : '#dc3545';
+        {/* Progression report */}
+        <StudentProgression student={student} classStudents={classStudents} currentTerm={activeTerm} isAnnual={termView === 'ANNUAL'} />
+      </div>
 
-  return (
-    <div className="card-cassie overflow-hidden" style={{ borderLeft: `3px solid ${borderColor}` }}>
-      {/* UE header — clickable */}
-      <div
-        className="px-5 py-4 flex flex-wrap gap-4 items-center cursor-pointer select-none hover:bg-[#f9f9fd] transition-colors"
-        style={{ borderBottom: expanded ? '1px solid #e6e7ef' : 'none' }}
-        onClick={onToggle}
-      >
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            {ue.validated
-              ? <CheckCircle className="w-4 h-4 shrink-0" style={{ color: '#22d273' }} />
-              : <XCircle className="w-4 h-4 shrink-0" style={{ color: '#dc3545' }} />}
-            <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>{ue.ueName}</h6>
+     
+      {/* Per-term subject breakdown */}
+      {(termView === 'ANNUAL' ? student.termMarks : student.termMarks.filter(tm => tm.termId === activeTerm)).map(tm => (
+        <div key={tm.termId} className="card-cassie overflow-hidden">
+          <div
+            className="px-5 py-4 flex items-center justify-between cursor-pointer select-none hover:bg-[#f9f9fd] transition-colors"
+            style={{ borderBottom: expandedTerm === tm.termId ? '1px solid #e6e7ef' : 'none' }}
+            onClick={() => setExpandedTerm(expandedTerm === tm.termId ? null : tm.termId)}
+          >
+            <div className="flex items-center gap-3">
+              <h6 className="font-medium text-sm" style={{ color: '#06072d' }}>Notes {tm.termId}</h6>
+              <span className="text-xs font-medium px-2 py-0.5 rounded"
+                style={{
+                  background: (tm.termAverage ?? 0) >= 10 ? '#e6f9ef' : '#fce8ea',
+                  color: (tm.termAverage ?? 0) >= 10 ? '#22d273' : '#dc3545',
+                }}>
+                Moy: {tm.termAverage?.toFixed(2) ?? '—'}/20
+              </span>
+            </div>
+            <ChevronDown
+              className="w-5 h-5 shrink-0 transition-transform duration-200"
+              style={{ color: '#c0ccda', transform: expandedTerm === tm.termId ? 'rotate(180deg)' : 'rotate(0deg)' }}
+            />
           </div>
-          {ue.compensated && (
-            <span className="text-[11px] px-2 py-0.5 rounded ml-6" style={{ background: '#fff8e1', color: '#d4a017' }}>
-              Validé par compensation
-            </span>
+          <div className="overflow-hidden transition-all duration-300 ease-in-out"
+            style={{ maxHeight: expandedTerm === tm.termId ? '800px' : '0' }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ background: '#f9f9fd' }}>
+                    <th className="px-5 py-2 text-left text-xs font-medium" style={{ color: '#8392a5' }}>Matière</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Coeff.</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Note</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Appréciation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tm.subjectMarks.map(sm => (
+                    <tr key={sm.subjectCode} className="border-b hover:bg-[#f9f9fd] transition-colors" style={{ borderColor: '#f3f6f9' }}>
+                      <td className="px-5 py-2.5">
+                        <span style={{ color: '#575d78' }}>{sm.subjectName}</span>
+                        {sm.isBonus && <span className="ml-1 text-[10px] px-1 rounded" style={{ background: '#f0f0ff', color: '#5556fd' }}>bonus</span>}
+                        {sm.isBehavioral && <span className="ml-1 text-[10px] px-1 rounded" style={{ background: '#f0e6ff', color: '#7c3aed' }}>conduite</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-center" style={{ color: '#8392a5' }}>{sm.coefficient}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        {sm.mark != null ? (
+                          <span className="font-bold" style={{ color: sm.mark >= 10 ? '#22d273' : '#dc3545' }}>
+                            {sm.mark.toFixed(2)}
+                          </span>
+                        ) : <span style={{ color: '#c0ccda' }}>—</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-xs" style={{ color: '#8392a5' }}>
+                        {sm.mark != null ? getAppreciation(sm.mark) : ''}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* Branch orientation (for lycée) */}
+      {yr?.suggestedBranch && (
+        <div className="card-cassie p-4" style={{ borderLeft: '3px solid #5556fd', background: '#f8f8ff' }}>
+          <p className="text-sm font-medium" style={{ color: '#5556fd' }}>Orientation filière suggérée</p>
+          <p className="text-lg font-bold mt-1" style={{ color: '#06072d' }}>{yr.suggestedBranch}</p>
+          {student.branch && yr.suggestedBranch !== student.branch && (
+            <p className="text-xs mt-1" style={{ color: '#8392a5' }}>
+              Changement de filière : {student.branch} → {yr.suggestedBranch}
+            </p>
           )}
         </div>
-        <div className="flex gap-6 text-center">
-          <div>
-            <p className="text-[10px] uppercase tracking-widest" style={{ color: '#8392a5' }}>Moyenne UE</p>
-            <p className="font-bold text-lg" style={{ color: ue.average >= 10 ? '#22d273' : '#dc3545' }}>
-              {ue.average.toFixed(2)}/20
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-widest" style={{ color: '#8392a5' }}>Crédits</p>
-            <p className="font-bold text-lg" style={{ color: '#06072d' }}>{ue.creditsEarned}/{ue.totalCredits}</p>
-          </div>
-        </div>
-        <ChevronDown
-          className="w-5 h-5 shrink-0 transition-transform duration-200"
-          style={{
-            color: '#c0ccda',
-            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-          }}
-        />
-      </div>
-
-      {/* ECUE table — collapsible */}
-      <div
-        className="overflow-hidden transition-all duration-300 ease-in-out"
-        style={{ maxHeight: expanded ? '600px' : '0' }}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ background: '#f9f9fd' }}>
-                <th className="px-5 py-2 text-left text-xs font-medium" style={{ color: '#8392a5' }}>ECUE</th>
-                <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Cr.</th>
-                <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>CCC</th>
-                <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>ETS</th>
-                <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>S1</th>
-                <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>S2</th>
-                <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Moyenne</th>
-                <th className="px-3 py-2 text-center text-xs font-medium" style={{ color: '#8392a5' }}>Statut</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ue.ecueResults.map(ecue => (
-                <ECUERow key={ecue.ecueCode} ecue={ecue} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
     </div>
-  );
-}
-
-function ECUERow({ ecue }: { ecue: StudentECUEResult }) {
-  const avg = ecue.average;
-  const validated = ecue.validated;
-  return (
-    <tr className="border-b hover:bg-[#f9f9fd] transition-colors" style={{ borderColor: '#f3f6f9' }}>
-      <td className="px-5 py-2.5">
-        <span style={{ color: '#575d78' }}>{ecue.ecueName}</span>
-        {!ecue.approved && (
-          <span className="ml-2 text-xs" style={{ color: '#fca665' }} title="Notes non approuvées">*</span>
-        )}
-      </td>
-      <td className="px-3 py-2.5 text-center" style={{ color: '#8392a5' }}>{ecue.credits}</td>
-      <GradeCell value={ecue.ccc} />
-      <GradeCell value={ecue.ets} />
-      <GradeCell value={ecue.session1} />
-      <GradeCell value={ecue.session2} />
-      <td className="px-3 py-2.5 text-center">
-        {avg !== null ? (
-          <span className="font-bold" style={{ color: avg >= 10 ? '#22d273' : '#dc3545' }}>
-            {avg.toFixed(2)}
-          </span>
-        ) : <span style={{ color: '#c0ccda' }}>—</span>}
-      </td>
-      <td className="px-3 py-2.5 text-center">
-        {avg !== null && (
-          validated
-            ? <CheckCircle className="w-4 h-4 inline" style={{ color: '#22d273' }} />
-            : <XCircle className="w-4 h-4 inline" style={{ color: '#dc3545' }} />
-        )}
-      </td>
-    </tr>
-  );
-}
-
-function GradeCell({ value }: { value: number | null }) {
-  if (value === null) return <td className="px-3 py-2.5 text-center" style={{ color: '#c0ccda' }}>—</td>;
-  return (
-    <td className="px-3 py-2.5 text-center" style={{ color: '#575d78' }}>
-      {value.toFixed(2)}
-    </td>
   );
 }
 
@@ -279,4 +330,13 @@ function InfoPill({ label, value, highlight }: { label: string; value: string; h
       </p>
     </div>
   );
+}
+
+function getAppreciation(mark: number): string {
+  if (mark >= 16) return 'Très bien';
+  if (mark >= 14) return 'Bien';
+  if (mark >= 12) return 'Assez bien';
+  if (mark >= 10) return 'Passable';
+  if (mark >= 8) return 'Insuffisant';
+  return 'Très insuffisant';
 }

@@ -47,7 +47,7 @@ export default function GlobalAdminPage() {
                 </span>
               </div>
               <p className="text-xs truncate" style={{ color: '#8392a5' }}>
-                Paramètres globaux, utilisateurs et configuration de l'application
+                Configuration des cours, règles et utilisateurs K12net
               </p>
             </div>
           </div>
