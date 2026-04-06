@@ -10,7 +10,7 @@ import {
   onAuthStateChanged,
   type User,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
 const googleProvider = new GoogleAuthProvider();
@@ -76,13 +76,33 @@ async function ensureUserDoc(user: User) {
   const snap = await getDoc(ref);
   if (!snap.exists()) {
     const isAdmin = ADMIN_EMAILS.includes(user.email?.toLowerCase() ?? '');
+
+    // Check if there's a pending invite for this email
+    let hasPendingInvite = false;
+    if (user.email) {
+      const q = query(
+        collection(db, 'users'),
+        where('email', '==', user.email),
+        where('pendingInvite', '==', true),
+      );
+      const inviteSnap = await getDocs(q);
+      if (!inviteSnap.empty) {
+        hasPendingInvite = true;
+        // Delete the placeholder pending invite doc(s)
+        for (const d of inviteSnap.docs) {
+          await deleteDoc(d.ref);
+        }
+      }
+    }
+
     await setDoc(ref, {
       email: user.email,
       displayName: user.displayName ?? '',
       photoURL: user.photoURL ?? null,
       role: isAdmin ? 'admin' : 'user',
-      status: 'active',
+      status: hasPendingInvite ? 'pending' : (isAdmin ? 'active' : 'active'),
       createdAt: serverTimestamp(),
+      ...(hasPendingInvite ? { invitedAt: serverTimestamp() } : {}),
     });
   } else {
     // Migrate existing docs that lack role/status fields

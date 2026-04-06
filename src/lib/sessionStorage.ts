@@ -1,7 +1,10 @@
-// ─── IndexedDB persistence for K12 session data ────────────────────────────
+// ─── IndexedDB + Firebase Storage persistence for K12 session data ─────────
 // K12AppData can be large (33 classes × ~50 students × subject grades),
-// exceeding Firestore's 1MB doc limit. We use IndexedDB for local persistence.
+// exceeding Firestore's 1MB doc limit. We use IndexedDB as a local cache
+// and Firebase Storage as shared cloud storage for collaboration.
 
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from './firebase';
 import type { K12AppData } from '../types/k12';
 
 const DB_NAME = 'k12net-sessions';
@@ -22,7 +25,9 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveSessionAppData(sessionId: string, data: K12AppData): Promise<void> {
+// ─── Local IndexedDB (cache) ────────────────────────────────────────────────
+
+async function saveLocal(sessionId: string, data: K12AppData): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -32,7 +37,7 @@ export async function saveSessionAppData(sessionId: string, data: K12AppData): P
   });
 }
 
-export async function loadSessionAppData(sessionId: string): Promise<K12AppData | null> {
+async function loadLocal(sessionId: string): Promise<K12AppData | null> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -42,7 +47,7 @@ export async function loadSessionAppData(sessionId: string): Promise<K12AppData 
   });
 }
 
-export async function deleteSessionAppData(sessionId: string): Promise<void> {
+async function deleteLocal(sessionId: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -50,4 +55,64 @@ export async function deleteSessionAppData(sessionId: string): Promise<void> {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
+
+// ─── Firebase Storage (shared cloud) ────────────────────────────────────────
+
+function cloudPath(sessionId: string): string {
+  return `sessions/${sessionId}/k12data.json`;
+}
+
+async function saveCloud(sessionId: string, data: K12AppData): Promise<void> {
+  const json = JSON.stringify(data);
+  const blob = new Blob([json], { type: 'application/json' });
+  const storageRef = ref(storage, cloudPath(sessionId));
+  await uploadBytes(storageRef, blob);
+}
+
+async function loadCloud(sessionId: string): Promise<K12AppData | null> {
+  try {
+    const storageRef = ref(storage, cloudPath(sessionId));
+    const url = await getDownloadURL(storageRef);
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    return (await resp.json()) as K12AppData;
+  } catch {
+    // File doesn't exist or network error
+    return null;
+  }
+}
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
+/** Save K12AppData to both local cache and cloud storage */
+export async function saveSessionAppData(sessionId: string, data: K12AppData): Promise<void> {
+  // Save locally first (fast), then cloud (async)
+  await saveLocal(sessionId, data);
+  // Cloud upload in background — don't block the UI
+  saveCloud(sessionId, data).catch(err =>
+    console.warn('[sessionStorage] Cloud save failed:', err),
+  );
+}
+
+/** Load K12AppData: local cache first, then cloud fallback */
+export async function loadSessionAppData(sessionId: string): Promise<K12AppData | null> {
+  // Try local cache first (instant)
+  const local = await loadLocal(sessionId);
+  if (local) return local;
+
+  // Fall back to cloud (shared sessions)
+  const cloud = await loadCloud(sessionId);
+  if (cloud) {
+    // Cache locally for next time
+    await saveLocal(sessionId, cloud).catch(() => {});
+    return cloud;
+  }
+
+  return null;
+}
+
+/** Delete K12AppData from local cache only (cloud stays for shared users) */
+export async function deleteSessionAppData(sessionId: string): Promise<void> {
+  await deleteLocal(sessionId);
 }

@@ -119,8 +119,22 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
     setInviteSuccess('');
     setInviteLoading(true);
     try {
-      await createPendingUser(inviteEmail.trim(), inviteName.trim() || inviteEmail.trim());
-      setInviteSuccess(`Invitation créée pour ${inviteEmail.trim()}`);
+      const email = inviteEmail.trim();
+      const name = inviteName.trim() || email;
+      await createPendingUser(email, name);
+
+      // Send invitation email via Resend API route
+      const resp = await fetch('/api/send-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name, appUrl: window.location.origin }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || 'Échec de l\'envoi de l\'email');
+      }
+
+      setInviteSuccess(`Invitation envoyée à ${email}`);
       setInviteEmail('');
       setInviteName('');
       await loadUsers();
