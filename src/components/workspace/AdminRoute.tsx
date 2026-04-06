@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Upload, FileSpreadsheet, AlertTriangle, CheckCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { Upload, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
 import { useSession } from '../../contexts/SessionContext';
 import { useGlobalSettings } from '../../contexts/GlobalSettingsContext';
 import { parseGradesExcel } from '../../utils/gradesParser';

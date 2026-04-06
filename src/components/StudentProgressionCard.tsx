@@ -1,12 +1,8 @@
 import { useMemo } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
-  ResponsiveContainer, Legend, Tooltip, ReferenceLine, ReferenceArea,
-} from 'recharts';
+
 import type { K12Student, TermId } from '../types/k12';
-import type { ProgressionReport } from '../types/analytics';
 import { PROFILE_META } from '../types/analytics';
-import { generateProgressionReport, classifyDisciplineProfile } from '../utils/analyticsCalculations';
+import { generateProgressionReport } from '../utils/analyticsCalculations';
 import MetricCard, { DeltaBadge } from './MetricCard';
 
 interface Props {
@@ -28,24 +24,6 @@ export default function StudentProgressionCard({ student, classStudents, current
     scientifique: 'Profil scientifique',
     equilibre: 'Profil équilibré',
   };
-
-  // Average evolution chart data
-  const avgChartData = report.snapshots.map(s => ({
-    term: s.termId,
-    eleve: s.average,
-    classe: s.classAverage,
-  }));
-
-  // Rank evolution chart data (inverted Y axis)
-  const rankChartData = report.snapshots
-    .filter(s => s.rank > 0)
-    .map(s => ({
-      term: s.termId,
-      rang: s.rank,
-      total: s.totalStudents,
-    }));
-
-  const maxStudents = Math.max(...rankChartData.map(d => d.total), 1);
 
   return (
     <div className="space-y-5">

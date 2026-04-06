@@ -1,13 +1,9 @@
 import { useState, useMemo } from 'react';
-import { ArrowLeft, ChevronDown, UserCircle } from 'lucide-react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
-  ResponsiveContainer, Legend, Tooltip, ReferenceLine,
-} from 'recharts';
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, UserCircle } from 'lucide-react';
 import type { K12Student, TermId, TermView } from '../types/k12';
 import { PROFILE_META } from '../types/analytics';
-import { classifyStudent, generateStudentAlerts } from '../utils/analyticsCalculations';
-import { PromotionBadge, DistinctionBadge, SanctionBadge } from './Dashboard';
+import { classifyStudent } from '../utils/analyticsCalculations';
+import { PromotionBadge } from './Dashboard';
 import RadarDisciplinaire from './RadarDisciplinaire';
 import StudentProgression from './StudentProgression';
 import StudentProgressionCard from './StudentProgressionCard';
@@ -16,10 +12,14 @@ interface Props {
   student: K12Student;
   classStudents: K12Student[];
   onBack: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  currentIndex?: number;
+  totalFiltered?: number;
   photoUrl?: string;
 }
 
-export default function StudentDetail({ student, classStudents, onBack, photoUrl }: Props) {
+export default function StudentDetail({ student, classStudents, onBack, onPrev, onNext, currentIndex, totalFiltered, photoUrl }: Props) {
   const [expandedTerm, setExpandedTerm] = useState<TermId | null>(null);
   const [termView, setTermView] = useState<TermView>('ANNUAL');
   const [photoError, setPhotoError] = useState(false);
@@ -41,37 +41,52 @@ export default function StudentDetail({ student, classStudents, onBack, photoUrl
   const profile = useMemo(() => classifyStudent(student, activeTerm), [student, activeTerm]);
   const profileMeta = PROFILE_META[profile];
 
-  // Student-specific alerts
-  const studentAlerts = useMemo(
-    () => activeTerm !== 'T1' ? generateStudentAlerts(student, activeTerm) : [],
-    [student, activeTerm],
-  );
-
-  // Evolution chart data: T1, T2, T3 averages + class avg
-  const evolutionData = useMemo(() => {
-    return (['T1', 'T2', 'T3'] as const).map(tid => {
-      const tr = yr?.termResults.find(t => t.termId === tid);
-      const classAvgs = classStudents
-        .map(s => s.yearResult?.termResults.find(t => t.termId === tid)?.termAverage ?? null)
-        .filter((v): v is number => v !== null);
-      const classAvg = classAvgs.length > 0
-        ? Math.round((classAvgs.reduce((a, b) => a + b, 0) / classAvgs.length) * 100) / 100
-        : null;
-      return {
-        term: tid,
-        studentAvg: tr?.termAverage ?? null,
-        classAvg,
-      };
-    });
-  }, [yr, classStudents]);
-
   return (
     <div className="space-y-5">
-      {/* Back + Period filter */}
+      {/* Back + Prev/Next + Period filter */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <button onClick={onBack} className="flex items-center gap-2 text-sm font-medium transition-colors" style={{ color: '#5556fd' }}>
-          <ArrowLeft className="w-4 h-4" /> Retour à la liste
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} className="flex items-center gap-2 text-sm font-medium transition-colors" style={{ color: '#5556fd' }}>
+            <ArrowLeft className="w-4 h-4" /> Retour à la liste
+          </button>
+          {(onPrev || onNext) && (
+            <div className="flex items-center gap-1.5 ml-2">
+              <button
+                onClick={onPrev}
+                disabled={!onPrev}
+                className="p-1.5 rounded border transition-colors"
+                style={{
+                  borderColor: onPrev ? '#e6e7ef' : '#f3f6f9',
+                  color: onPrev ? '#575d78' : '#c0ccda',
+                  background: onPrev ? '#fff' : '#f9f9fd',
+                  cursor: onPrev ? 'pointer' : 'default',
+                }}
+                title="Élève précédent"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              {currentIndex != null && totalFiltered != null && (
+                <span className="text-[11px] font-medium tabular-nums" style={{ color: '#8392a5' }}>
+                  {currentIndex + 1}/{totalFiltered}
+                </span>
+              )}
+              <button
+                onClick={onNext}
+                disabled={!onNext}
+                className="p-1.5 rounded border transition-colors"
+                style={{
+                  borderColor: onNext ? '#e6e7ef' : '#f3f6f9',
+                  color: onNext ? '#575d78' : '#c0ccda',
+                  background: onNext ? '#fff' : '#f9f9fd',
+                  cursor: onNext ? 'pointer' : 'default',
+                }}
+                title="Élève suivant"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium" style={{ color: '#8392a5' }}>Période :</span>
           <div className="flex items-center rounded p-0.5" style={{ background: '#f3f6f9' }}>

@@ -1,7 +1,7 @@
 // ─── Report Module Types ────────────────────────────────────────────────────
 // Types for the 7 official K12net reports (PV Conseil, Liste Nominative, etc.)
 
-import type { TermId, GradeLevel, Branch, PromotionStatus, TermDistinction, TermSanction } from './k12';
+import type { TermId, GradeLevel, Branch, TermDistinction, TermSanction } from './k12';
 
 // ─── Report identifiers ────────────────────────────────────────────────────
 
@@ -219,7 +219,7 @@ export function fmtNum(n: number | null | undefined, decimals = 2): string {
 }
 
 /** Format a rank: 1 → "1er", 2 → "2ème", with ex-aequo handling */
-export function fmtRank(rank: number | null | undefined, totalStudents?: number): string {
+export function fmtRank(rank: number | null | undefined, _totalStudents?: number): string {
   if (rank === null || rank === undefined || rank === 0) return '—';
   if (rank === 1) return '1er';
   return `${rank}ème`;

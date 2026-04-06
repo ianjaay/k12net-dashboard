@@ -2,7 +2,7 @@
  * Step4_ImportLaunch — Summary + real-time progress + stop with keep/discard dialog.
  */
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Play, CheckCircle, AlertCircle, Loader2, XCircle, StopCircle, Save, Trash2 } from 'lucide-react';
+import { Play, StopCircle, Save, Trash2 } from 'lucide-react';
 import type { OneRosterApiConfig, OrgSelectionTree, ImportProgress } from '../../../../types/oneRoster';
 import type { OneRosterService } from '../../../../lib/oneRosterService';
 import type { SelectedYear } from './Step3_SessionSelection';
@@ -41,7 +41,7 @@ interface Props {
 }
 
 export default function Step4_ImportLaunch({
-  service, orgTree, selectedYears, apiConfig, onDone, onBack,
+  service, orgTree, selectedYears, apiConfig: _apiConfig, onDone, onBack,
 }: Props) {
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);

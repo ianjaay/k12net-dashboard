@@ -4,7 +4,7 @@
  * Shows: student list, demographics, gender/redoublant stats.
  */
 import { useState, useEffect, useMemo } from 'react';
-import { Users, UserCircle, Award, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
+import { UserCircle, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
 import type { EleveML } from '../../types/multiLevel';
 import { getElevesByClasse } from '../../lib/educationDB';
 import { useNavigation } from '../../contexts/NavigationContext';

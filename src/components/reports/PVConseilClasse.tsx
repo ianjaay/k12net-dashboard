@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import type { PVConseilData } from '../../types/reports';
 import { fmtNum } from '../../types/reports';
 import ReportHeader, { ReportFooter } from './ReportHeader';
