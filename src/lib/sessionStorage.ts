@@ -91,12 +91,15 @@ async function loadCloud(sessionId: string): Promise<K12AppData | null> {
 
 /** Save K12AppData to both local cache and cloud storage */
 export async function saveSessionAppData(sessionId: string, data: K12AppData): Promise<void> {
-  // Save locally first (fast), then cloud (async)
+  // Save locally first (fast)
   await saveLocal(sessionId, data);
-  // Cloud upload in background — don't block the UI
-  saveCloud(sessionId, data).catch(err =>
-    console.warn('[sessionStorage] Cloud save failed:', err),
-  );
+  // Cloud upload — await so shared users can access it
+  try {
+    await saveCloud(sessionId, data);
+    console.log('[sessionStorage] Cloud save succeeded');
+  } catch (err) {
+    console.error('[sessionStorage] Cloud save FAILED — shared users will not see this data:', err);
+  }
 }
 
 /** Load K12AppData: local cache first, then cloud fallback */
