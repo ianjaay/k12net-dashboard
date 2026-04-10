@@ -73,6 +73,14 @@ async function saveCloud(sessionId: string, data: K12AppData): Promise<void> {
 async function loadCloud(sessionId: string): Promise<K12AppData | null> {
   try {
     const storageRef = ref(storage, cloudPath(sessionId));
+    // Timeout to avoid indefinite hang on network issues
+    const url = await Promise.race([
+      getDownloadURL(storageRef),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+    ]);
+    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!resp.ok) return null;
+    return (await resp.json()) as K12AppData;
     // Use getBytes (SDK transport) instead of getDownloadURL+fetch to avoid CORS
     const bytes = await Promise.race([
       getBytes(storageRef),
@@ -81,6 +89,7 @@ async function loadCloud(sessionId: string): Promise<K12AppData | null> {
     const text = new TextDecoder().decode(bytes);
     return JSON.parse(text) as K12AppData;
   } catch {
+    // File doesn't exist, network error, or timeout
     // File doesn't exist, network error, or timeout
     return null;
   }
@@ -109,13 +118,16 @@ export async function loadSessionAppData(sessionId: string): Promise<K12AppData 
   }
 
   // Fall back to cloud (shared sessions)
+  console.log('[sessionStorage] No local data, trying cloud...');
   const cloud = await loadCloud(sessionId);
   if (cloud) {
+    console.log('[sessionStorage] Loaded from cloud storage');
     // Cache locally for next time
     await saveLocal(sessionId, cloud).catch(() => {});
     return cloud;
   }
 
+  console.log('[sessionStorage] No data found (local or cloud)');
   return null;
 }
 
