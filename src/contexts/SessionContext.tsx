@@ -92,15 +92,18 @@ export function SessionProvider({ sessionId, children }: { sessionId: string; ch
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      console.log('[Session] Loading session:', sessionId);
       const [sess, stored] = await Promise.all([
-        getSession(sessionId),
-        loadSessionAppData(sessionId),
+        getSession(sessionId).then(s => { console.log('[Session] Firestore session:', s ? 'found' : 'null'); return s; }),
+        loadSessionAppData(sessionId).then(d => { console.log('[Session] AppData:', d ? `${d.students?.length ?? 0} students` : 'null'); return d; }),
       ]);
       setSession(sess);
       if (stored) {
         setAppData(stored);
         setSelectedClassId(stored.classes.length > 1 ? null : (stored.classes[0]?.id ?? null));
       }
+    } catch (err) {
+      console.error('[Session] loadData error:', err);
     } finally {
       setLoading(false);
     }
