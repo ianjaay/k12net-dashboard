@@ -3,7 +3,7 @@
 // exceeding Firestore's 1MB doc limit. We use IndexedDB as a local cache
 // and Firebase Storage as shared cloud storage for collaboration.
 
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getBytes } from 'firebase/storage';
 import { storage } from './firebase';
 import type { K12AppData } from '../types/k12';
 
@@ -81,7 +81,15 @@ async function loadCloud(sessionId: string): Promise<K12AppData | null> {
     const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!resp.ok) return null;
     return (await resp.json()) as K12AppData;
+    // Use getBytes (SDK transport) instead of getDownloadURL+fetch to avoid CORS
+    const bytes = await Promise.race([
+      getBytes(storageRef),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Cloud load timeout')), 10000)),
+    ]);
+    const text = new TextDecoder().decode(bytes);
+    return JSON.parse(text) as K12AppData;
   } catch {
+    // File doesn't exist, network error, or timeout
     // File doesn't exist, network error, or timeout
     return null;
   }
@@ -104,10 +112,7 @@ export async function loadSessionAppData(sessionId: string): Promise<K12AppData 
   // Try local cache first (instant)
   try {
     const local = await loadLocal(sessionId);
-    if (local) {
-      console.log('[sessionStorage] Loaded from local cache');
-      return local;
-    }
+    if (local) return local;
   } catch (err) {
     console.warn('[sessionStorage] Local load failed:', err);
   }
