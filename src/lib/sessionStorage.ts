@@ -2,6 +2,7 @@
 // K12AppData can be large (33 classes × ~50 students × subject grades),
 // exceeding Firestore's 1MB doc limit. We use IndexedDB as a local cache
 // and Firebase Storage as shared cloud storage for collaboration.
+// Cloud reads use getBytes() to avoid CORS issues with getDownloadURL.
 
 import { ref, uploadBytes, getBytes } from 'firebase/storage';
 import { storage } from './firebase';
