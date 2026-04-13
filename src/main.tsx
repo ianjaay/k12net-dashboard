@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom'
 import './index.css'
 import './i18n'
 import { AuthProvider } from './contexts/AuthContext'
+import { EstablishmentProvider } from './contexts/EstablishmentContext'
 import { GlobalSettingsProvider } from './contexts/GlobalSettingsContext'
 import { StudentPhotosProvider } from './contexts/StudentPhotosContext'
 import { router } from './router'
@@ -11,11 +12,13 @@ import { router } from './router'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
-      <GlobalSettingsProvider>
-        <StudentPhotosProvider>
-          <RouterProvider router={router} />
-        </StudentPhotosProvider>
-      </GlobalSettingsProvider>
+      <EstablishmentProvider>
+        <GlobalSettingsProvider>
+          <StudentPhotosProvider>
+            <RouterProvider router={router} />
+          </StudentPhotosProvider>
+        </GlobalSettingsProvider>
+      </EstablishmentProvider>
     </AuthProvider>
   </StrictMode>,
 )

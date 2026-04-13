@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { loadGlobalSettings, saveGlobalSettings } from '../lib/firestore';
+import { updateEstablishment } from '../lib/firestoreEstablishments';
+import { useEstablishment } from './EstablishmentContext';
 import type { CourseDefinition, K12YearRulesConfig, AcademicYear } from '../types/k12';
 
 export interface GlobalAppSettings {
@@ -28,6 +30,8 @@ const GlobalSettingsContext = createContext<GlobalSettingsContextType | undefine
 const STORAGE_KEY = 'k12net-global-settings';
 
 export function GlobalSettingsProvider({ children }: { children: ReactNode }) {
+  const { currentEstablishment } = useEstablishment();
+
   const [settings, setSettings] = useState<GlobalAppSettings>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -38,22 +42,54 @@ export function GlobalSettingsProvider({ children }: { children: ReactNode }) {
   });
   const [loading, setLoading] = useState(true);
 
-  // Load from Firestore on mount
+  // Load settings: from establishment if available, else from globalSettings/default
   useEffect(() => {
-    loadGlobalSettings().then(remote => {
-      if (remote) {
-        setSettings(prev => ({ ...prev, ...remote }));
-      }
-    }).catch(() => {/* Firestore unavailable, use localStorage */}).finally(() => setLoading(false));
-  }, []);
+    if (currentEstablishment) {
+      // Load from establishment document
+      const estSettings: GlobalAppSettings = {
+        logo: currentEstablishment.logo,
+        schoolName: currentEstablishment.schoolName || currentEstablishment.name,
+        academicYear: currentEstablishment.academicYear,
+        courseCatalog: currentEstablishment.courseCatalog,
+        rulesConfig: currentEstablishment.rulesConfig,
+        yearConfigs: currentEstablishment.yearConfigs,
+        photoBaseUrl: currentEstablishment.photoBaseUrl,
+      };
+      setSettings(estSettings);
+      setLoading(false);
+    } else {
+      // Fallback to globalSettings/default for backward compatibility
+      loadGlobalSettings().then(remote => {
+        if (remote) {
+          setSettings(prev => ({ ...prev, ...remote }));
+        }
+      }).catch(() => {/* Firestore unavailable, use localStorage */}).finally(() => setLoading(false));
+    }
+  }, [currentEstablishment]);
 
   const updateSettings = useCallback((newSettings: GlobalAppSettings) => {
     setSettings(newSettings);
-    // Persist to Firestore (fire-and-forget)
-    saveGlobalSettings(newSettings).catch(err =>
-      console.warn('Failed to save global settings to Firestore:', err)
-    );
-  }, []);
+
+    if (currentEstablishment) {
+      // Save to establishment document
+      updateEstablishment(currentEstablishment.id, {
+        logo: newSettings.logo,
+        schoolName: newSettings.schoolName,
+        academicYear: newSettings.academicYear,
+        courseCatalog: newSettings.courseCatalog,
+        rulesConfig: newSettings.rulesConfig,
+        yearConfigs: newSettings.yearConfigs,
+        photoBaseUrl: newSettings.photoBaseUrl,
+      }).catch(err =>
+        console.warn('Failed to save settings to establishment:', err)
+      );
+    } else {
+      // Fallback: save to globalSettings/default
+      saveGlobalSettings(newSettings).catch(err =>
+        console.warn('Failed to save global settings to Firestore:', err)
+      );
+    }
+  }, [currentEstablishment]);
 
   // Persist to localStorage whenever settings change (offline cache)
   useEffect(() => {

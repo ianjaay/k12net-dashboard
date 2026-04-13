@@ -27,7 +27,7 @@ export async function saveGlobalSettings(settings: GlobalAppSettings): Promise<v
 
 // ─── Sessions CRUD ──────────────────────────────────────────────────────────
 
-export async function createSession(uid: string, email: string, name: string, description: string): Promise<string> {
+export async function createSession(uid: string, email: string, name: string, description: string, establishmentId?: string): Promise<string> {
   const ref = await addDoc(collection(db, 'sessions'), {
     name,
     description,
@@ -36,16 +36,23 @@ export async function createSession(uid: string, email: string, name: string, de
     ownerId: uid,
     members: { [uid]: 'owner' },
     memberEmails: [email],
+    ...(establishmentId ? { establishmentId } : {}),
     data: null,
   } satisfies Omit<SessionDoc, 'createdAt' | 'updatedAt'> & { createdAt: unknown; updatedAt: unknown });
   return ref.id;
 }
 
-export async function getUserSessions(uid: string, email: string): Promise<Array<{ id: string } & SessionDoc>> {
-  // Query owned sessions
-  const ownedQ = query(collection(db, 'sessions'), where('ownerId', '==', uid));
-  // Query shared sessions by email
-  const sharedQ = query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email));
+export async function getUserSessions(uid: string, email: string, establishmentId?: string): Promise<Array<{ id: string } & SessionDoc>> {
+  let ownedQ;
+  let sharedQ;
+
+  if (establishmentId) {
+    ownedQ = query(collection(db, 'sessions'), where('ownerId', '==', uid), where('establishmentId', '==', establishmentId));
+    sharedQ = query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email), where('establishmentId', '==', establishmentId));
+  } else {
+    ownedQ = query(collection(db, 'sessions'), where('ownerId', '==', uid));
+    sharedQ = query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email));
+  }
 
   const [ownedSnap, sharedSnap] = await Promise.all([getDocs(ownedQ), getDocs(sharedQ)]);
 

@@ -1,9 +1,13 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useEstablishment } from '../../contexts/EstablishmentContext';
 import { BookOpen, Clock } from 'lucide-react';
 
 export default function ProtectedRoute() {
   const { user, userStatus, logout } = useAuth();
+  const { needsSelection, loading: estLoading } = useEstablishment();
+  const location = useLocation();
+
   if (!user) return <Navigate to="/login" replace />;
   if (!user.isAnonymous && userStatus === 'suspended') return <Navigate to="/login" replace />;
 
@@ -34,6 +38,25 @@ export default function ProtectedRoute() {
         </div>
       </div>
     );
+  }
+
+  // Show loading while establishments are being loaded
+  if (estLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#f9f9fd' }}>
+        <div className="text-center">
+          <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mx-auto mb-3"
+            style={{ borderColor: '#5556fd', borderTopColor: 'transparent' }} />
+          <p className="text-sm" style={{ color: '#8392a5' }}>Chargement...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect to establishment selector if needed (but not if already on that page or super-admin)
+  const exemptPaths = ['/select-establishment', '/super-admin'];
+  if (needsSelection && !exemptPaths.includes(location.pathname)) {
+    return <Navigate to="/select-establishment" replace />;
   }
 
   return <Outlet />;

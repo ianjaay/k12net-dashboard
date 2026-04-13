@@ -228,20 +228,18 @@ export interface PVConfig {
 
 // ─── Firebase / Session Types ──────────────────────────────────────────────
 
-export type AppRole = 'admin' | 'user';
-export type UserStatus = 'active' | 'pending' | 'suspended';
-
-export interface UserProfile {
-  uid: string;
-  email: string;
-  displayName: string;
-  photoURL: string | null;
-  role: AppRole;
-  status: UserStatus;
-  createdAt: unknown;
-  deleted?: boolean;
-  deletedAt?: unknown;
-}
+export type { AppRole, UserStatus, UserProfile } from './establishment';
+export type {
+  Establishment,
+  EstablishmentCreateData,
+  EstablishmentUpdateData,
+  EstablishmentMember,
+  EstablishmentMemberData,
+  EstablishmentRole,
+  EstablishmentType,
+  EstablishmentCycle,
+  EstablishmentContextState,
+} from './establishment';
 
 export type SessionRole = 'owner' | 'editor' | 'reader';
 
@@ -253,6 +251,8 @@ export interface SessionDoc {
   ownerId: string;
   members: Record<string, SessionRole>;
   memberEmails: string[];
+  /** Establishment this session belongs to */
+  establishmentId?: string;
   data: {
     courses: CourseStructure;
     creditOverrides: CreditOverride[];

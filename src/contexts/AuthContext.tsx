@@ -20,6 +20,11 @@ interface AuthState {
   isGuest: boolean;
   appRole: AppRole;
   userStatus: UserStatus;
+  isSuperAdmin: boolean;
+  /** IDs of establishments the user belongs to */
+  userEstablishmentIds: string[];
+  /** Last selected establishment ID from profile */
+  currentEstablishmentId: string | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   loginGoogle: () => Promise<void>;
@@ -37,6 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profileLoading, setProfileLoading] = useState(true);
   const [appRole, setAppRole] = useState<AppRole>('user');
   const [userStatus, setUserStatus] = useState<UserStatus>('active');
+  const [userEstablishmentIds, setUserEstablishmentIds] = useState<string[]>([]);
+  const [currentEstablishmentId, setCurrentEstablishmentId] = useState<string | null>(null);
 
   useEffect(() => {
     return onAuthChange((u) => {
@@ -45,6 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!u || u.isAnonymous) {
         setAppRole('user');
         setUserStatus('active');
+        setUserEstablishmentIds([]);
+        setCurrentEstablishmentId(null);
         setProfileLoading(false);
       } else {
         setProfileLoading(true);
@@ -60,13 +69,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const snap = await getDoc(doc(db, 'users', user.uid));
         if (cancelled) return;
-        const data = snap.data() as { role?: AppRole; status?: UserStatus } | undefined;
+        const data = snap.data() as { role?: AppRole; status?: UserStatus; establishments?: string[]; currentEstablishment?: string } | undefined;
         setAppRole(data?.role ?? 'user');
         setUserStatus(data?.status ?? 'active');
+        setUserEstablishmentIds(data?.establishments ?? []);
+        setCurrentEstablishmentId(data?.currentEstablishment ?? null);
       } catch {
         if (!cancelled) {
           setAppRole('user');
           setUserStatus('active');
+          setUserEstablishmentIds([]);
+          setCurrentEstablishmentId(null);
         }
       } finally {
         if (!cancelled) setProfileLoading(false);
@@ -76,6 +89,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void loadProfile();
     return () => { cancelled = true; };
   }, [user]);
+
+  const isSuperAdmin = appRole === 'super-admin';
 
   const loading = !authResolved || profileLoading;
 
@@ -118,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, loading, isGuest, appRole, userStatus,
+      isSuperAdmin, userEstablishmentIds, currentEstablishmentId,
       login, register,
       loginGoogle: loginGoogleFn,
       loginMicrosoft: loginMicrosoftFn,
