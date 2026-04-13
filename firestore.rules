@@ -45,7 +45,9 @@ service cloud.firestore {
       allow read: if request.auth != null
         && (request.auth.uid in resource.data.members
             || resource.data.ownerId == request.auth.uid
-            || isSuperAdmin());
+            || isSuperAdmin()
+            || (resource.data.establishmentId != null
+                && isEstablishmentMember(resource.data.establishmentId)));
       allow create: if request.auth != null;
       allow update: if request.auth != null
         && (isSuperAdmin()
@@ -57,14 +59,20 @@ service cloud.firestore {
 
       match /classes/{classId} {
         allow read: if request.auth != null
-          && (isSuperAdmin() || request.auth.uid in get(/databases/$(database)/documents/sessions/$(sessionId)).data.members);
+          && (isSuperAdmin()
+              || request.auth.uid in get(/databases/$(database)/documents/sessions/$(sessionId)).data.members
+              || (get(/databases/$(database)/documents/sessions/$(sessionId)).data.establishmentId != null
+                  && isEstablishmentMember(get(/databases/$(database)/documents/sessions/$(sessionId)).data.establishmentId)));
         allow write: if request.auth != null
           && (isSuperAdmin() || get(/databases/$(database)/documents/sessions/$(sessionId)).data.members[request.auth.uid] in ['owner', 'editor']);
       }
 
       match /snapshots/{snapshotId} {
         allow read: if request.auth != null
-          && (isSuperAdmin() || request.auth.uid in get(/databases/$(database)/documents/sessions/$(sessionId)).data.members);
+          && (isSuperAdmin()
+              || request.auth.uid in get(/databases/$(database)/documents/sessions/$(sessionId)).data.members
+              || (get(/databases/$(database)/documents/sessions/$(sessionId)).data.establishmentId != null
+                  && isEstablishmentMember(get(/databases/$(database)/documents/sessions/$(sessionId)).data.establishmentId)));
         allow write: if request.auth != null
           && (isSuperAdmin() || get(/databases/$(database)/documents/sessions/$(sessionId)).data.members[request.auth.uid] in ['owner', 'editor']);
       }

@@ -43,23 +43,25 @@ export async function createSession(uid: string, email: string, name: string, de
 }
 
 export async function getUserSessions(uid: string, email: string, establishmentId?: string): Promise<Array<{ id: string } & SessionDoc>> {
-  let ownedQ;
-  let sharedQ;
+  const queries: Promise<import('firebase/firestore').QuerySnapshot>[] = [];
 
   if (establishmentId) {
-    ownedQ = query(collection(db, 'sessions'), where('ownerId', '==', uid), where('establishmentId', '==', establishmentId));
-    sharedQ = query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email), where('establishmentId', '==', establishmentId));
+    // All sessions in this establishment — members see everything
+    queries.push(getDocs(query(collection(db, 'sessions'), where('establishmentId', '==', establishmentId))));
   } else {
-    ownedQ = query(collection(db, 'sessions'), where('ownerId', '==', uid));
-    sharedQ = query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email));
+    // No establishment context — show owned + shared
+    queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid))));
+    queries.push(getDocs(query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email))));
   }
 
-  const [ownedSnap, sharedSnap] = await Promise.all([getDocs(ownedQ), getDocs(sharedQ)]);
+  const snapshots = await Promise.all(queries);
 
   const map = new Map<string, { id: string } & SessionDoc>();
-  for (const s of [...ownedSnap.docs, ...sharedSnap.docs]) {
-    if (!map.has(s.id)) {
-      map.set(s.id, { id: s.id, ...(s.data() as SessionDoc) });
+  for (const snap of snapshots) {
+    for (const s of snap.docs) {
+      if (!map.has(s.id)) {
+        map.set(s.id, { id: s.id, ...(s.data() as SessionDoc) });
+      }
     }
   }
   return [...map.values()].sort((a, b) => {
