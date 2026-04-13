@@ -320,13 +320,20 @@ export async function createPendingUser(email: string, displayName: string): Pro
   });
 }
 
-export async function deleteUserAccount(uid: string, transferToUid?: string): Promise<void> {
+export async function deleteUserAccount(uid: string, transferToUid?: string, establishmentId?: string): Promise<void> {
   const userRef = doc(db, 'users', uid);
   const userSnap = await getDoc(userRef);
   if (!userSnap.exists()) throw new Error('Utilisateur introuvable');
 
   const userData = userSnap.data() as UserProfile;
   const email = userData.email ?? '';
+  const userEstablishments = userData.establishments ?? [];
+
+  // Check if user belongs to other establishments
+  const remainingEstablishments = establishmentId
+    ? userEstablishments.filter(id => id !== establishmentId)
+    : [];
+  const hasOtherEstablishments = remainingEstablishments.length > 0;
 
   // Gather owned sessions — transfer ownership instead of blocking
   const ownedSessionsSnap = await getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid)));
@@ -340,6 +347,8 @@ export async function deleteUserAccount(uid: string, transferToUid?: string): Pr
   // Transfer owned sessions to the requesting admin (or just remove member entry)
   ownedSessionsSnap.docs.forEach(sessionDoc => {
     const session = sessionDoc.data() as SessionDoc;
+    // If scoped to an establishment, only touch sessions from that establishment
+    if (establishmentId && session.establishmentId && session.establishmentId !== establishmentId) return;
     const members = { ...session.members };
     delete members[uid];
     const memberEmails = session.memberEmails.filter(e => e !== email);
@@ -355,18 +364,34 @@ export async function deleteUserAccount(uid: string, transferToUid?: string): Pr
   sharedSessionsSnap.docs.forEach(sessionDoc => {
     if (ownedSessionsSnap.docs.some(d => d.id === sessionDoc.id)) return;
     const session = sessionDoc.data() as SessionDoc;
+    if (establishmentId && session.establishmentId && session.establishmentId !== establishmentId) return;
     const members = { ...session.members };
     delete members[uid];
     const memberEmails = session.memberEmails.filter(e => e !== email);
     batch.update(sessionDoc.ref, { members, memberEmails, updatedAt: serverTimestamp() });
   });
 
-  batch.update(userRef, {
-    deleted: true,
-    deletedAt: serverTimestamp(),
-    status: 'suspended' as UserStatus,
-    role: 'user' as AppRole,
-  });
+  if (hasOtherEstablishments) {
+    // User still has other establishments — only remove from this one
+    batch.update(userRef, {
+      establishments: remainingEstablishments,
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    // No other establishments — fully deactivate
+    batch.update(userRef, {
+      deleted: true,
+      deletedAt: serverTimestamp(),
+      status: 'suspended' as UserStatus,
+      role: 'user' as AppRole,
+    });
+  }
+
+  // Remove from establishment members subcollection if applicable
+  if (establishmentId) {
+    const memberRef = doc(db, 'establishments', establishmentId, 'members', uid);
+    batch.delete(memberRef);
+  }
 
   await batch.commit();
 }

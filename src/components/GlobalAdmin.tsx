@@ -16,6 +16,7 @@ import { BUILTIN_RULES, getRulesForYear } from '../utils/k12RulesEngine';
 import type { AcademicYear, K12YearRulesConfig } from '../types/k12';
 import { GRADE_LEVEL_LABELS } from '../types/k12';
 import type { UserProfile, AppRole, UserStatus } from '../types';
+import { useEstablishment } from '../contexts/EstablishmentContext';
 import { RefreshCw as RefreshIcon } from 'lucide-react';
 
 interface Props {
@@ -27,6 +28,7 @@ type AdminSectionKey = 'logo' | 'courses' | 'school' | 'rules' | 'photos' | 'use
 
 export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
   const { user: currentUser } = useAuth();
+  const { currentEstablishment } = useEstablishment();
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(settings.logo || null);
   const [schoolName, setSchoolName] = useState(settings.schoolName || 'LYCÉE SAINTE MARIE DE COCODY ABIDJAN');
@@ -155,7 +157,7 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
     if (!confirmed) return;
     setUserActionError('');
     try {
-      await deleteUserAccount(targetUser.uid, currentUser?.uid);
+      await deleteUserAccount(targetUser.uid, currentUser?.uid, currentEstablishment?.id);
       setUsers(prev => prev.filter(user => user.uid !== targetUser.uid));
     } catch (err: unknown) {
       setUserActionError(err instanceof Error ? err.message : 'Suppression impossible');
