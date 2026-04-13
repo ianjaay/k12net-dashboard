@@ -74,15 +74,15 @@ async function saveCloud(sessionId: string, data: K12AppData): Promise<void> {
 async function loadCloud(sessionId: string): Promise<K12AppData | null> {
   try {
     const storageRef = ref(storage, cloudPath(sessionId));
-    // Use getBytes (SDK transport) instead of getDownloadURL+fetch to avoid CORS
+    console.log('[sessionStorage] Attempting cloud load from:', cloudPath(sessionId));
     const bytes = await Promise.race([
       getBytes(storageRef),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Cloud load timeout')), 10000)),
     ]);
     const text = new TextDecoder().decode(bytes);
     return JSON.parse(text) as K12AppData;
-  } catch {
-    // File doesn't exist, network error, or timeout
+  } catch (err) {
+    console.warn('[sessionStorage] Cloud load failed:', err);
     return null;
   }
 }
