@@ -10,7 +10,7 @@ export default function GlobalAdminPage() {
   const { user, isGuest, logout, appRole } = useAuth();
   const navigate = useNavigate();
 
-  if (appRole !== 'admin') {
+  if (appRole !== 'admin' && appRole !== 'super-admin') {
     return <Navigate to="/sessions" replace />;
   }
 
