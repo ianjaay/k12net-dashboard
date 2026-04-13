@@ -71,16 +71,17 @@ export function GlobalSettingsProvider({ children }: { children: ReactNode }) {
     setSettings(newSettings);
 
     if (currentEstablishment) {
-      // Save to establishment document
-      updateEstablishment(currentEstablishment.id, {
-        logo: newSettings.logo,
-        schoolName: newSettings.schoolName,
-        academicYear: newSettings.academicYear,
-        courseCatalog: newSettings.courseCatalog,
-        rulesConfig: newSettings.rulesConfig,
-        yearConfigs: newSettings.yearConfigs,
-        photoBaseUrl: newSettings.photoBaseUrl,
-      }).catch(err =>
+      // Strip undefined values — Firestore rejects them
+      const data: Record<string, unknown> = {};
+      if (newSettings.logo !== undefined) data.logo = newSettings.logo;
+      if (newSettings.schoolName !== undefined) data.schoolName = newSettings.schoolName;
+      if (newSettings.academicYear !== undefined) data.academicYear = newSettings.academicYear;
+      if (newSettings.courseCatalog !== undefined) data.courseCatalog = newSettings.courseCatalog;
+      if (newSettings.rulesConfig !== undefined) data.rulesConfig = newSettings.rulesConfig;
+      if (newSettings.yearConfigs !== undefined) data.yearConfigs = newSettings.yearConfigs;
+      if (newSettings.photoBaseUrl !== undefined) data.photoBaseUrl = newSettings.photoBaseUrl;
+
+      updateEstablishment(currentEstablishment.id, data).catch(err =>
         console.warn('Failed to save settings to establishment:', err)
       );
     } else {
