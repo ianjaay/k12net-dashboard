@@ -106,13 +106,37 @@ export async function listUserEstablishments(uid: string): Promise<Establishment
   const userData = userSnap.data();
   const establishmentIds: string[] = userData.establishments ?? [];
 
-  if (establishmentIds.length === 0) return [];
+  // Also check all establishments for membership (in case user profile is out of sync)
+  const allEstSnap = await getDocs(collection(db, ESTABLISHMENTS_COL));
+  const memberEstIds = new Set(establishmentIds);
+
+  const memberChecks = allEstSnap.docs.map(async (estDoc) => {
+    if (memberEstIds.has(estDoc.id)) return;
+    const memberSnap = await getDoc(doc(db, ESTABLISHMENTS_COL, estDoc.id, 'members', uid));
+    if (memberSnap.exists()) {
+      memberEstIds.add(estDoc.id);
+    }
+  });
+  await Promise.all(memberChecks);
+
+  if (memberEstIds.size === 0) return [];
+
+  // Sync back to user profile if we found extra memberships
+  if (memberEstIds.size > establishmentIds.length) {
+    const allIds = [...memberEstIds];
+    updateDoc(doc(db, 'users', uid), { establishments: allIds }).catch(() => {});
+  }
 
   // Fetch each establishment
   const results: Establishment[] = [];
-  for (const eid of establishmentIds) {
-    const est = await getEstablishment(eid);
-    if (est) results.push(est);
+  for (const eid of memberEstIds) {
+    const cached = allEstSnap.docs.find(d => d.id === eid);
+    if (cached) {
+      results.push({ id: cached.id, ...cached.data() } as Establishment);
+    } else {
+      const est = await getEstablishment(eid);
+      if (est) results.push(est);
+    }
   }
   return results;
 }
