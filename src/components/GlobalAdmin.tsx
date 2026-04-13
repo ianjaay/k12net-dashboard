@@ -2,8 +2,9 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Image, X, Save, Check, Building2, FileSpreadsheet, CheckCircle,
   Scale, Loader2, Users as UsersIcon, UserPlus, ShieldCheck as ShieldCheckIcon,
-  ChevronDown, ChevronUp, Trash2, GraduationCap, Calculator,
+  ChevronDown, ChevronUp, Trash2,
 } from 'lucide-react';
+import CalculationRulesEditor from './CalculationRulesEditor';
 import JSZip from 'jszip';
 import type { GlobalAppSettings } from '../contexts/GlobalSettingsContext';
 import { useStudentPhotos } from '../contexts/StudentPhotosContext';
@@ -252,37 +253,6 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
     setHasUnsavedChanges(true);
   };
 
-  const updateDistinctionThreshold = (
-    group: '7-10' | '11-13',
-    field: 'thMin' | 'theMin' | 'thfMin',
-    value: number
-  ) => {
-    setRulesConfig(prev => ({
-      ...prev,
-      termDistinction: {
-        ...prev.termDistinction,
-        [group]: { ...prev.termDistinction[group], [field]: value },
-      },
-    }));
-    setHasUnsavedChanges(true);
-  };
-
-  const updateSanctionThreshold = (field: keyof K12YearRulesConfig['termSanction'], value: number) => {
-    setRulesConfig(prev => ({
-      ...prev,
-      termSanction: { ...prev.termSanction, [field]: value },
-    }));
-    setHasUnsavedChanges(true);
-  };
-
-  const updatePromotionThreshold = (field: keyof K12YearRulesConfig['promotion'], value: number) => {
-    setRulesConfig(prev => ({
-      ...prev,
-      promotion: { ...prev.promotion, [field]: value },
-    }));
-    setHasUnsavedChanges(true);
-  };
-
   // ─── Save ────────────────────────────────────────────────────────
   const handleSave = () => {
     setSaveStatus('saving');
@@ -509,165 +479,10 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
         open={openSections.rules}
         onToggle={() => toggleSection('rules')}
       >
-        <div className="space-y-6">
-          <p className="text-xs" style={{ color: '#8392a5' }}>
-            Configurez les seuils de distinction, sanction et promotion pour l'année <strong>{academicYear}–{parseInt(academicYear) + 1}</strong>.
-          </p>
-
-          {/* ── Distinction Thresholds ── */}
-          <div>
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#06072d' }}>
-              <GraduationCap className="w-4 h-4" style={{ color: '#5556fd' }} />
-              Seuils de distinction (par trimestre)
-            </h4>
-            <div className="grid sm:grid-cols-2 gap-4">
-              {(['7-10', '11-13'] as const).map(group => (
-                <div key={group} className="p-3 rounded border" style={{ borderColor: '#e6e7ef', background: '#f9f9fd' }}>
-                  <div className="text-xs font-medium mb-3" style={{ color: '#575d78' }}>
-                    {group === '7-10' ? 'Collège (6ème – 3ème)' : 'Lycée (2nde – Tle)'}
-                  </div>
-                  <div className="space-y-2">
-                    <ThresholdInput
-                      label="Tableau d'Honneur (TH)"
-                      value={rulesConfig.termDistinction[group].thMin}
-                      onChange={v => updateDistinctionThreshold(group, 'thMin', v)}
-                      color="#3b82f6"
-                    />
-                    <ThresholdInput
-                      label="Tableau d'Excellence (THE)"
-                      value={rulesConfig.termDistinction[group].theMin}
-                      onChange={v => updateDistinctionThreshold(group, 'theMin', v)}
-                      color="#8b5cf6"
-                    />
-                    <ThresholdInput
-                      label="Félicitations (THF)"
-                      value={rulesConfig.termDistinction[group].thfMin}
-                      onChange={v => updateDistinctionThreshold(group, 'thfMin', v)}
-                      color="#eab308"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Sanction Thresholds ── */}
-          <div>
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#06072d' }}>
-              <Scale className="w-4 h-4" style={{ color: '#ef4444' }} />
-              Seuils de sanction
-            </h4>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <ThresholdInput
-                label="Blâme Travail Insuffisant (BTI)"
-                hint="Moy. < seuil → BTI"
-                value={rulesConfig.termSanction.btiMax}
-                onChange={v => updateSanctionThreshold('btiMax', v)}
-                color="#ef4444"
-              />
-              <ThresholdInput
-                label="Avertissement Travail (AVT)"
-                hint="Moy. < seuil → AVT"
-                value={rulesConfig.termSanction.avtMax}
-                onChange={v => updateSanctionThreshold('avtMax', v)}
-                color="#f97316"
-              />
-              <ThresholdInput
-                label="Blâme Mauvaise Conduite (BMC)"
-                hint="Note conduite < seuil → BMC"
-                value={rulesConfig.termSanction.bmcMax}
-                onChange={v => updateSanctionThreshold('bmcMax', v)}
-                color="#ef4444"
-              />
-              <ThresholdInput
-                label="Avert. Mauvaise Conduite (AMC)"
-                hint="Note conduite < seuil → AMC"
-                value={rulesConfig.termSanction.amcMax}
-                onChange={v => updateSanctionThreshold('amcMax', v)}
-                color="#f97316"
-              />
-            </div>
-          </div>
-
-          {/* ── Promotion Thresholds ── */}
-          <div>
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#06072d' }}>
-              <Calculator className="w-4 h-4" style={{ color: '#22c55e' }} />
-              Seuils de promotion (fin d'année)
-            </h4>
-            <div className="grid sm:grid-cols-3 gap-3">
-              <ThresholdInput
-                label="Admis (non redoublant)"
-                hint="Moy. annuelle ≥ seuil → ADMIS"
-                value={rulesConfig.promotion.promotionMin}
-                onChange={v => updatePromotionThreshold('promotionMin', v)}
-                color="#22c55e"
-              />
-              <ThresholdInput
-                label="Redouble (non redoublant)"
-                hint="Moy. ≥ seuil → REDOUBLE"
-                value={rulesConfig.promotion.retainedMin}
-                onChange={v => updatePromotionThreshold('retainedMin', v)}
-                color="#eab308"
-              />
-              <ThresholdInput
-                label="Admis (redoublant)"
-                hint="Redoublant: moy. ≥ seuil → ADMIS"
-                value={rulesConfig.promotion.repeatingPromotionMin}
-                onChange={v => updatePromotionThreshold('repeatingPromotionMin', v)}
-                color="#3b82f6"
-              />
-            </div>
-
-            {/* Rule flags */}
-            <div className="mt-4 space-y-2">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rulesConfig.useNonBonusForDistinctionCheck}
-                  onChange={e => { setRulesConfig(prev => ({ ...prev, useNonBonusForDistinctionCheck: e.target.checked })); setHasUnsavedChanges(true); }}
-                  className="rounded"
-                />
-                <span style={{ color: '#373857' }}>Utiliser les matières non-bonus pour la vérification des distinctions</span>
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rulesConfig.checkFrenchCompositionForDistinction}
-                  onChange={e => { setRulesConfig(prev => ({ ...prev, checkFrenchCompositionForDistinction: e.target.checked })); setHasUnsavedChanges(true); }}
-                  className="rounded"
-                />
-                <span style={{ color: '#373857' }}>Vérifier la composition de Français pour les distinctions</span>
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rulesConfig.terminalGradePromotion.repeatingAutoExpelled}
-                  onChange={e => {
-                    setRulesConfig(prev => ({
-                      ...prev,
-                      terminalGradePromotion: { ...prev.terminalGradePromotion, repeatingAutoExpelled: e.target.checked },
-                    }));
-                    setHasUnsavedChanges(true);
-                  }}
-                  className="rounded"
-                />
-                <span style={{ color: '#373857' }}>Redoublant en classe terminale → exclusion automatique</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Weighted Average Formula */}
-          <div className="p-4 rounded" style={{ background: '#f0f0ff', border: '1px solid #d4d4ff' }}>
-            <h4 className="text-sm font-semibold mb-2" style={{ color: '#06072d' }}>Formule de calcul</h4>
-            <div className="text-xs space-y-1" style={{ color: '#575d78' }}>
-              <p><strong>Moyenne par matière (trimestre)</strong> = Moyenne simple des évaluations (normalisées /20)</p>
-              <p><strong>Moyenne pondérée (trimestre)</strong> = Σ(moy. matière × coefficient) / Σ(coefficients)</p>
-              <p><strong>Moyenne annuelle</strong> = Moyenne des moyennes pondérées des trimestres disponibles</p>
-              <p><strong>Distinction</strong> = basée sur la moyenne pondérée + vérification des matières en échec</p>
-            </div>
-          </div>
-        </div>
+        <CalculationRulesEditor
+          rulesConfig={rulesConfig}
+          onConfigChange={config => { setRulesConfig(config); setHasUnsavedChanges(true); }}
+        />
       </AdminSection>
 
       {/* ═══ Logo ═══ */}
@@ -892,34 +707,6 @@ function AdminSection({ icon, title, open, onToggle, children }: {
         {open ? <ChevronUp className="w-4 h-4" style={{ color: '#8392a5' }} /> : <ChevronDown className="w-4 h-4" style={{ color: '#8392a5' }} />}
       </button>
       {open && <div className="p-5">{children}</div>}
-    </div>
-  );
-}
-
-function ThresholdInput({ label, hint, value, onChange, color }: {
-  label: string;
-  hint?: string;
-  value: number;
-  onChange: (v: number) => void;
-  color: string;
-}) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <label className="text-xs font-medium" style={{ color: '#373857' }}>{label}</label>
-        <span className="text-xs font-bold" style={{ color }}>{value}</span>
-      </div>
-      {hint && <p className="text-[10px] mb-1" style={{ color: '#8392a5' }}>{hint}</p>}
-      <input
-        type="range"
-        min="0"
-        max="20"
-        step="0.5"
-        value={value}
-        onChange={e => onChange(parseFloat(e.target.value))}
-        className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-        style={{ accentColor: color }}
-      />
     </div>
   );
 }
