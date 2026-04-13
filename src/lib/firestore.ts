@@ -217,7 +217,8 @@ export async function restoreSnapshot(sessionId: string, snapshotId: string) {
 // ─── Sharing ────────────────────────────────────────────────────────────────
 
 export async function findUserByEmail(email: string): Promise<{ uid: string; displayName: string } | null> {
-  const q = query(collection(db, 'users'), where('email', '==', email));
+  const normalizedEmail = email.toLowerCase().trim();
+  const q = query(collection(db, 'users'), where('email', '==', normalizedEmail));
   const snap = await getDocs(q);
   if (snap.empty) return null;
   const d = snap.docs[0];
@@ -305,14 +306,15 @@ export async function updateUserAppRole(uid: string, role: AppRole): Promise<voi
 }
 
 export async function createPendingUser(email: string, displayName: string): Promise<void> {
+  const normalizedEmail = email.toLowerCase().trim();
   // Check if a user with this email already exists
-  const existing = await findUserByEmail(email);
+  const existing = await findUserByEmail(normalizedEmail);
   if (existing) throw new Error('Un utilisateur avec cet email existe déjà');
 
   // Create a placeholder doc in the users collection (will be linked on first login)
   const ref = doc(collection(db, 'users'));
   await setDoc(ref, {
-    email,
+    email: normalizedEmail,
     displayName,
     photoURL: null,
     role: 'user' as AppRole,

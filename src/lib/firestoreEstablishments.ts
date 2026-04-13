@@ -147,8 +147,9 @@ export async function addEstablishmentMember(
   establishmentId: string,
   member: EstablishmentMemberData,
 ): Promise<void> {
+  const normalizedMember = { ...member, email: member.email.toLowerCase().trim() };
   await setDoc(doc(membersCol(establishmentId), member.uid), {
-    ...member,
+    ...normalizedMember,
     joinedAt: serverTimestamp(),
   });
 
