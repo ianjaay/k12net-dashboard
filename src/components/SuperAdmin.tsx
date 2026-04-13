@@ -26,6 +26,7 @@ import {
 import { getAllUsers } from '../lib/firestore';
 import type {
   Establishment,
+  EstablishmentCreateData,
   EstablishmentType,
   EstablishmentCycle,
   EstablishmentRole,
@@ -230,43 +231,27 @@ export default function SuperAdmin() {
       setFormError('Le nom est requis.');
       return;
     }
+
+    // Build data without undefined values (Firestore rejects undefined)
+    const data: Record<string, unknown> = {
+      name: formData.name.trim(),
+      type: formData.type,
+      cycle: formData.cycle,
+    };
+    if (formData.code.trim()) data.code = formData.code.trim();
+    if (formData.address.trim()) data.address = formData.address.trim();
+    if (formData.city.trim()) data.city = formData.city.trim();
+    if (formData.region.trim()) data.region = formData.region.trim();
+
     try {
       setFormSaving(true);
       setFormError(null);
       if (editingEstablishment) {
-        await updateEstablishment(editingEstablishment.id, {
-          name: formData.name.trim(),
-          code: formData.code.trim() || undefined,
-          type: formData.type,
-          cycle: formData.cycle,
-          address: formData.address.trim() || undefined,
-          city: formData.city.trim() || undefined,
-          region: formData.region.trim() || undefined,
-        });
-        // refresh detail view
-        const updated = {
-          ...editingEstablishment,
-          name: formData.name.trim(),
-          code: formData.code.trim() || undefined,
-          type: formData.type,
-          cycle: formData.cycle,
-          address: formData.address.trim() || undefined,
-          city: formData.city.trim() || undefined,
-          region: formData.region.trim() || undefined,
-        };
-        setSelectedEstablishment(updated);
+        await updateEstablishment(editingEstablishment.id, data);
+        setSelectedEstablishment({ ...editingEstablishment, ...data } as Establishment);
       } else {
         await createEstablishment(
-          {
-            name: formData.name.trim(),
-            code: formData.code.trim() || undefined,
-            type: formData.type,
-            cycle: formData.cycle,
-            address: formData.address.trim() || undefined,
-            city: formData.city.trim() || undefined,
-            region: formData.region.trim() || undefined,
-            createdBy: user!.uid,
-          },
+          { ...data, createdBy: user!.uid } as EstablishmentCreateData,
           user!.uid,
           user!.email || '',
           user!.displayName || ''
