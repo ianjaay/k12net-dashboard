@@ -83,26 +83,58 @@ async function firestorePatch(accessToken, docPath, fields) {
   }, body);
 }
 
+async function lookupAuthUser(accessToken, email) {
+  const body = JSON.stringify({ email: [email] });
+  const result = await httpRequest(
+    `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:lookup`,
+    { method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
+    body,
+  );
+  return result.users?.[0] || null;
+}
+
+async function firestoreSet(accessToken, collectionPath, docId, fields) {
+  const params = Object.keys(fields).map(k => `updateMask.fieldPaths=${k}`).join('&');
+  const url = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/${collectionPath}/${docId}?${params}`;
+  const mapFields = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === null) mapFields[k] = { nullValue: null };
+    else mapFields[k] = { stringValue: v };
+  }
+  const body = JSON.stringify({ fields: mapFields });
+  return httpRequest(url, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+  }, body);
+}
+
 async function main() {
   console.log(`🔑 Getting access token from Firebase CLI...`);
   const token = await getAccessToken();
 
-  console.log(`🔍 Looking for user with email: ${EMAIL}`);
-  const results = await firestoreQuery(token, 'users', 'email', EMAIL);
+  // 1. Find the actual Firebase Auth UID for this email
+  console.log(`🔍 Looking up Firebase Auth user: ${EMAIL}`);
+  const authUser = await lookupAuthUser(token, EMAIL);
 
-  if (!results || !results[0]?.document) {
-    console.error(`❌ No user found with email: ${EMAIL}`);
+  if (!authUser) {
+    console.error(`❌ No Firebase Auth user found with email: ${EMAIL}`);
+    console.error(`   The user must have created an account first (login at least once).`);
     process.exit(1);
   }
 
-  const doc = results[0].document;
-  const docName = doc.name; // full path
-  const displayName = doc.fields?.displayName?.stringValue || EMAIL;
-  const currentRole = doc.fields?.role?.stringValue || 'user';
+  const authUid = authUser.localId;
+  const displayName = authUser.displayName || EMAIL;
+  console.log(`   Auth UID: ${authUid} (${displayName})`);
 
-  console.log(`   Found: ${displayName} (role: ${currentRole})`);
-
-  await firestorePatch(token, docName, { role: 'super-admin' });
+  // 2. Create/update the Firestore user profile at users/{authUid}
+  console.log(`📝 Setting role to super-admin on users/${authUid}...`);
+  await firestoreSet(token, 'users', authUid, {
+    email: EMAIL,
+    displayName: displayName,
+    photoURL: null,
+    role: 'super-admin',
+    status: 'active',
+  });
 
   console.log(`✅ "${displayName}" is now super-admin!`);
   console.log(`   → Access /super-admin to manage establishments.`);
