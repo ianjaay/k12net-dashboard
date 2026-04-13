@@ -42,7 +42,13 @@ export function EstablishmentProvider({ children }: { children: ReactNode }) {
       let list: Establishment[];
 
       if (isSuperAdmin) {
-        list = await listAllEstablishments();
+        // Super-admin: try to list all, gracefully handle permission errors
+        try {
+          list = await listAllEstablishments();
+        } catch {
+          // Firestore rules may block collection-level queries; fall back to user's list
+          list = await listUserEstablishments(user.uid);
+        }
       } else {
         list = await listUserEstablishments(user.uid);
       }

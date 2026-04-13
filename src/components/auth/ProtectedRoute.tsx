@@ -4,7 +4,7 @@ import { useEstablishment } from '../../contexts/EstablishmentContext';
 import { BookOpen, Clock } from 'lucide-react';
 
 export default function ProtectedRoute() {
-  const { user, userStatus, logout } = useAuth();
+  const { user, userStatus, isSuperAdmin, logout } = useAuth();
   const { needsSelection, loading: estLoading } = useEstablishment();
   const location = useLocation();
 
@@ -53,9 +53,10 @@ export default function ProtectedRoute() {
     );
   }
 
-  // Redirect to establishment selector if needed (but not if already on that page or super-admin)
+  // Redirect to establishment selector if needed
+  // Super-admins bypass this — they can access /super-admin without selecting an establishment
   const exemptPaths = ['/select-establishment', '/super-admin'];
-  if (needsSelection && !exemptPaths.includes(location.pathname)) {
+  if (needsSelection && !isSuperAdmin && !exemptPaths.includes(location.pathname)) {
     return <Navigate to="/select-establishment" replace />;
   }
 
