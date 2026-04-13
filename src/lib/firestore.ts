@@ -320,7 +320,7 @@ export async function createPendingUser(email: string, displayName: string): Pro
   });
 }
 
-export async function deleteUserAccount(uid: string): Promise<void> {
+export async function deleteUserAccount(uid: string, transferToUid?: string): Promise<void> {
   const userRef = doc(db, 'users', uid);
   const userSnap = await getDoc(userRef);
   if (!userSnap.exists()) throw new Error('Utilisateur introuvable');
@@ -328,10 +328,8 @@ export async function deleteUserAccount(uid: string): Promise<void> {
   const userData = userSnap.data() as UserProfile;
   const email = userData.email ?? '';
 
+  // Gather owned sessions — transfer ownership instead of blocking
   const ownedSessionsSnap = await getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid)));
-  if (!ownedSessionsSnap.empty) {
-    throw new Error('Impossible de supprimer cet utilisateur : il possède encore une ou plusieurs sessions.');
-  }
 
   const sharedSessionsSnap = email
     ? await getDocs(query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email)))
@@ -339,16 +337,28 @@ export async function deleteUserAccount(uid: string): Promise<void> {
 
   const batch = writeBatch(db);
 
-  sharedSessionsSnap.docs.forEach(sessionDoc => {
+  // Transfer owned sessions to the requesting admin (or just remove member entry)
+  ownedSessionsSnap.docs.forEach(sessionDoc => {
     const session = sessionDoc.data() as SessionDoc;
     const members = { ...session.members };
     delete members[uid];
-    const memberEmails = session.memberEmails.filter(memberEmail => memberEmail !== email);
-    batch.update(sessionDoc.ref, {
-      members,
-      memberEmails,
-      updatedAt: serverTimestamp(),
-    });
+    const memberEmails = session.memberEmails.filter(e => e !== email);
+    const update: Record<string, unknown> = { members, memberEmails, updatedAt: serverTimestamp() };
+    if (transferToUid) {
+      update.ownerId = transferToUid;
+      members[transferToUid] = 'owner';
+    }
+    batch.update(sessionDoc.ref, update);
+  });
+
+  // Remove from shared sessions
+  sharedSessionsSnap.docs.forEach(sessionDoc => {
+    if (ownedSessionsSnap.docs.some(d => d.id === sessionDoc.id)) return;
+    const session = sessionDoc.data() as SessionDoc;
+    const members = { ...session.members };
+    delete members[uid];
+    const memberEmails = session.memberEmails.filter(e => e !== email);
+    batch.update(sessionDoc.ref, { members, memberEmails, updatedAt: serverTimestamp() });
   });
 
   batch.update(userRef, {

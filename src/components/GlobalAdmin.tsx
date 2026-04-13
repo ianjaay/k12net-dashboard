@@ -151,11 +151,11 @@ export default function GlobalAdmin({ settings, onSettingsChange }: Props) {
       setUserActionError('Vous ne pouvez pas supprimer votre propre compte.');
       return;
     }
-    const confirmed = confirm(`Supprimer le compte de ${targetUser.displayName || targetUser.email} ?`);
+    const confirmed = confirm(`Supprimer le compte de ${targetUser.displayName || targetUser.email} ?\nSes sessions seront transférées à votre compte.`);
     if (!confirmed) return;
     setUserActionError('');
     try {
-      await deleteUserAccount(targetUser.uid);
+      await deleteUserAccount(targetUser.uid, currentUser?.uid);
       setUsers(prev => prev.filter(user => user.uid !== targetUser.uid));
     } catch (err: unknown) {
       setUserActionError(err instanceof Error ? err.message : 'Suppression impossible');
