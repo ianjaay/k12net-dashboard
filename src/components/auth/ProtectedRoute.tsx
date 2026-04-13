@@ -9,7 +9,10 @@ export default function ProtectedRoute() {
   const location = useLocation();
 
   if (!user) return <Navigate to="/login" replace />;
-  if (!user.isAnonymous && userStatus === 'suspended') return <Navigate to="/login" replace />;
+  // Suspended users are handled by LoginPage — redirect there
+  if (!user.isAnonymous && userStatus === 'suspended') {
+    return <Navigate to="/login" replace state={{ suspended: true }} />;
+  }
 
   if (!user.isAnonymous && userStatus === 'pending') {
     return (

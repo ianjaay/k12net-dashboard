@@ -5,14 +5,38 @@ import { useTranslation } from 'react-i18next';
 import { BookOpen, UserCircle, Play } from 'lucide-react';
 
 export default function LoginPage() {
-  const { user, login, loginGoogle, loginMicrosoft, loginGuest, loginDemo } = useAuth();
+  const { user, userStatus, login, loginGoogle, loginMicrosoft, loginGuest, loginDemo, logout } = useAuth();
   const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (user) return <Navigate to="/sessions" replace />;
+  if (user && userStatus !== 'suspended') return <Navigate to="/sessions" replace />;
+
+  // Suspended user: force sign out and show message
+  if (user && userStatus === 'suspended') {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ background: '#f9f9fd' }}>
+        <div className="w-full max-w-md text-center">
+          <div className="inline-flex p-3 rounded-lg mb-4" style={{ background: '#fee2e2' }}>
+            <UserCircle className="w-8 h-8" style={{ color: '#ef4444' }} />
+          </div>
+          <h1 className="text-xl font-bold mb-2" style={{ color: '#06072d' }}>Compte désactivé</h1>
+          <p className="text-sm mb-6" style={{ color: '#8392a5' }}>
+            Votre compte a été désactivé par un administrateur. Contactez l'administration pour plus d'informations.
+          </p>
+          <button
+            onClick={() => logout()}
+            className="px-4 py-2 text-sm font-medium rounded transition-colors text-white"
+            style={{ background: '#5556fd' }}
+          >
+            Se déconnecter
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
