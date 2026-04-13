@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Plus, BookOpen, LogOut, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useGlobalSettings } from '../../contexts/GlobalSettingsContext';
+import { useEstablishment } from '../../contexts/EstablishmentContext';
 import { useTranslation } from 'react-i18next';
 import { getUserSessions, createSession, deleteSession, updateSession, removeSharing } from '../../lib/firestore';
 import type { SessionDoc, SessionRole } from '../../types';
@@ -10,10 +11,12 @@ import SessionCard from './SessionCard';
 import CreateSessionModal from './CreateSessionModal';
 import ShareSessionModal from './ShareSessionModal';
 import LanguageSwitcher from '../LanguageSwitcher';
+import EstablishmentSwitcher from '../establishments/EstablishmentSwitcher';
 
 export default function SessionList() {
-  const { user, isGuest, logout, appRole } = useAuth();
+  const { user, isGuest, logout, appRole, isSuperAdmin } = useAuth();
   const { settings: globalSettings } = useGlobalSettings();
+  const { currentEstablishment } = useEstablishment();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Array<{ id: string } & SessionDoc>>([]);
@@ -25,18 +28,28 @@ export default function SessionList() {
     if (!user) return;
     setLoading(true);
     try {
-      const data = await getUserSessions(user.uid, user.email ?? `guest-${user.uid}@anonymous`);
+      const data = await getUserSessions(
+        user.uid,
+        user.email ?? `guest-${user.uid}@anonymous`,
+        currentEstablishment?.id,
+      );
       setSessions(data);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, currentEstablishment]);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
   const handleCreate = async (name: string, description: string) => {
     if (!user) return;
-    const id = await createSession(user.uid, user.email ?? `guest-${user.uid}@anonymous`, name, description);
+    const id = await createSession(
+      user.uid,
+      user.email ?? `guest-${user.uid}@anonymous`,
+      name,
+      description,
+      currentEstablishment?.id,
+    );
     setShowCreate(false);
     navigate(`/sessions/${id}/dashboard`);
   };
@@ -87,8 +100,14 @@ export default function SessionList() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <EstablishmentSwitcher />
             <LanguageSwitcher />
-            {appRole === 'admin' && (
+            {isSuperAdmin && (
+              <Link to="/super-admin" className="text-sm px-3 py-1.5 rounded hover:bg-[#f0f0ff] transition-colors font-medium" style={{ color: '#5556fd' }}>
+                Système
+              </Link>
+            )}
+            {(appRole === 'admin' || appRole === 'super-admin') && (
               <Link to="/admin" className="text-sm px-3 py-1.5 rounded hover:bg-[#f0f0ff] transition-colors" style={{ color: '#5556fd' }}>
                 {t('navigation.admin')}
               </Link>
