@@ -182,39 +182,45 @@ export async function enrichStudentsFromLocalDB(
 
   // Build lookup maps
   const byMatricule = new Map<string, EleveML>();
-  const byName = new Map<string, EleveML>();
-  const byNormalized = new Map<string, EleveML>();
+  // Name-based maps use composite key "name|className" for same-class verification
+  const byNameAndClass = new Map<string, EleveML>();
+  const byNormalizedAndClass = new Map<string, EleveML>();
   for (const e of allEleves) {
     const mat = (e.matricule || '').trim();
     if (mat) byMatricule.set(mat, e);
-    // "NOM PRENOM" and "PRENOM NOM"
+    const cls = (e.salle_de_classe || '').trim().toLowerCase();
+    // "NOM PRENOM|classe" and "PRENOM NOM|classe"
     const name = `${e.nom} ${e.prenom}`.trim().toLowerCase();
-    if (name) byName.set(name, e);
-    const nameRev = `${e.prenom} ${e.nom}`.trim().toLowerCase();
-    if (nameRev) byName.set(nameRev, e);
-    // Normalized: sort all name parts alphabetically for order-independent matching
+    if (name && cls) {
+      byNameAndClass.set(`${name}|${cls}`, e);
+      byNameAndClass.set(`${e.prenom} ${e.nom}`.trim().toLowerCase() + `|${cls}`, e);
+    }
+    // Normalized (order-independent): sorted parts + class
     const normalized = `${e.nom} ${e.prenom}`.trim().toLowerCase().split(/\s+/).sort().join(' ');
-    if (normalized) byNormalized.set(normalized, e);
+    if (normalized && cls) byNormalizedAndClass.set(`${normalized}|${cls}`, e);
   }
 
   // Enrich each student
   let enriched = 0;
 
   function tryEnrich(student: K12Student): boolean {
-    // 1. By matricule (exact)
+    // 1. By matricule (exact — unique, no class check needed)
     if (student.matricule.trim()) {
       const match = byMatricule.get(student.matricule.trim());
       if (match) { applyLocalInfo(student, match); return true; }
     }
-    // 2. By full name (exact, both orders)
+    // 2. By full name + same class
     const fullLower = student.fullName.trim().toLowerCase();
-    const matchName = byName.get(fullLower)
-      ?? byName.get(`${student.lastName} ${student.firstName}`.trim().toLowerCase());
-    if (matchName) { applyLocalInfo(student, matchName); return true; }
-    // 3. By normalized name (order-independent)
-    const normalizedStudent = fullLower.split(/\s+/).sort().join(' ');
-    const matchNorm = byNormalized.get(normalizedStudent);
-    if (matchNorm) { applyLocalInfo(student, matchNorm); return true; }
+    const clsLower = (student.className || '').trim().toLowerCase();
+    if (clsLower) {
+      const matchName = byNameAndClass.get(`${fullLower}|${clsLower}`)
+        ?? byNameAndClass.get(`${student.lastName} ${student.firstName}`.trim().toLowerCase() + `|${clsLower}`);
+      if (matchName) { applyLocalInfo(student, matchName); return true; }
+      // 3. By normalized name + same class (order-independent)
+      const normalizedStudent = fullLower.split(/\s+/).sort().join(' ');
+      const matchNorm = byNormalizedAndClass.get(`${normalizedStudent}|${clsLower}`);
+      if (matchNorm) { applyLocalInfo(student, matchNorm); return true; }
+    }
     return false;
   }
 

@@ -25,8 +25,12 @@ export default function AdminRoute() {
   // Sync state
   const [enriching, setEnriching] = useState(false);
   const [enrichResult, setEnrichResult] = useState<string | null>(null);
+  const [enrichProgress, setEnrichProgress] = useState(0);
+  const [enrichLabel, setEnrichLabel] = useState('');
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [catalogResult, setCatalogResult] = useState<string | null>(null);
+  const [catalogProgress, setCatalogProgress] = useState(0);
+  const [catalogLabel, setCatalogLabel] = useState('');
 
   if (userRole === 'reader') {
     return <Navigate to={`/sessions/${sessionId}/dashboard`} replace />;
@@ -37,27 +41,43 @@ export default function AdminRoute() {
     if (!appData) return;
     setEnriching(true);
     setEnrichResult(null);
+    setEnrichProgress(0);
+    setEnrichLabel('Vérification des données locales…');
     try {
-      // Make sure synced data is loaded from cloud if needed
+      // Step 1: Check/load local data
+      setEnrichProgress(10);
       if (currentEstablishment) {
-        // Try to find matched school in educationDB — use establishment code or name
         const { getAllEtablissements } = await import('../../lib/educationDB');
         const allEtabs = await getAllEtablissements();
         if (allEtabs.length === 0) {
-          // Try loading from cloud
+          setEnrichLabel('Chargement depuis le cloud…');
+          setEnrichProgress(25);
           await loadEstablishmentFromCloud(currentEstablishment.id);
         }
       }
 
+      // Step 2: Enrichment
+      setEnrichLabel(`Correspondance de ${appData.students.length} élèves…`);
+      setEnrichProgress(50);
       const result = await enrichStudentsFromLocalDB(appData);
+      setEnrichProgress(80);
+
       if (result.enriched > 0) {
-        // Save enriched data back to session
+        // Step 3: Save
+        setEnrichLabel('Sauvegarde…');
+        setEnrichProgress(90);
         await handleK12DataReady(appData);
+        setEnrichProgress(100);
+        setEnrichLabel('Terminé');
         setEnrichResult(`${result.enriched}/${result.total} élèves mis à jour avec les données synchronisées`);
       } else {
+        setEnrichProgress(100);
+        setEnrichLabel('');
         setEnrichResult(result.error || 'Aucune correspondance trouvée. Vérifiez que les données sont synchronisées dans Super Admin.');
       }
     } catch (err) {
+      setEnrichProgress(100);
+      setEnrichLabel('');
       setEnrichResult(`Erreur : ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setEnriching(false);
@@ -68,34 +88,47 @@ export default function AdminRoute() {
   const handleLoadCatalog = useCallback(async () => {
     setLoadingCatalog(true);
     setCatalogResult(null);
+    setCatalogProgress(0);
+    setCatalogLabel('Recherche des établissements…');
     try {
-      // Find synced classes from educationDB
+      // Step 1: Find synced classes from educationDB
+      setCatalogProgress(10);
       const { getAllEtablissements } = await import('../../lib/educationDB');
       let allEtabs = await getAllEtablissements();
 
       // If none locally, try cloud
       if (allEtabs.length === 0 && currentEstablishment) {
+        setCatalogLabel('Chargement depuis le cloud…');
+        setCatalogProgress(25);
         await loadEstablishmentFromCloud(currentEstablishment.id);
         allEtabs = await getAllEtablissements();
       }
 
       if (allEtabs.length === 0) {
+        setCatalogProgress(100);
+        setCatalogLabel('');
         setCatalogResult('Aucun établissement synchronisé. Synchronisez les données dans Super Admin.');
         return;
       }
 
-      // Get classes from all establishments
+      // Step 2: Get classes
+      setCatalogLabel('Récupération des classes…');
+      setCatalogProgress(40);
       const classResults = await Promise.all(
         allEtabs.map(e => getClassesByEtablissement(e.id)),
       );
       const allClasses = classResults.flat();
 
       if (allClasses.length === 0) {
+        setCatalogProgress(100);
+        setCatalogLabel('');
         setCatalogResult('Aucune classe synchronisée trouvée.');
         return;
       }
 
-      // If we already have a catalog, update classrooms; otherwise create one
+      // Step 3: Build catalog
+      setCatalogLabel(`Construction du catalogue (${allClasses.length} classes)…`);
+      setCatalogProgress(60);
       const existingCatalog = settings.courseCatalog;
 
       if (existingCatalog && existingCatalog.length > 0) {
@@ -116,9 +149,13 @@ export default function AdminRoute() {
         }));
 
         // Also report what was added
-        setCatalogResult(`${allClasses.length} classes synchronisées. ${newClassrooms.length} nouvelles ajoutées au catalogue.`);
+        setCatalogProgress(80);
+        setCatalogLabel('Sauvegarde…');
         const newSettings = { ...settings, courseCatalog: updated };
         updateSettings(newSettings);
+        setCatalogProgress(100);
+        setCatalogLabel('Terminé');
+        setCatalogResult(`${allClasses.length} classes synchronisées. ${newClassrooms.length} nouvelles ajoutées au catalogue.`);
       } else {
         // Create catalog from synced classes grouped by level/serie
         const byLevel = new Map<string, typeof allClasses>();
@@ -151,17 +188,24 @@ export default function AdminRoute() {
           });
         }
 
+        setCatalogProgress(80);
+        setCatalogLabel('Sauvegarde…');
         const newSettings = { ...settings, courseCatalog: catalog };
         updateSettings(newSettings);
 
         // Also update Firestore establishment if available
         if (currentEstablishment) {
+          setCatalogProgress(90);
           await updateEstablishment(currentEstablishment.id, { courseCatalog: catalog });
         }
 
+        setCatalogProgress(100);
+        setCatalogLabel('Terminé');
         setCatalogResult(`Catalogue créé avec ${allClasses.length} classes depuis les données synchronisées.`);
       }
     } catch (err) {
+      setCatalogProgress(100);
+      setCatalogLabel('');
       setCatalogResult(`Erreur : ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoadingCatalog(false);
@@ -381,12 +425,42 @@ export default function AdminRoute() {
             </button>
           </div>
 
+          {enriching && (
+            <div className="mt-3">
+              <div className="flex justify-between text-xs mb-1" style={{ color: '#5556fd' }}>
+                <span>{enrichLabel}</span>
+                <span>{enrichProgress}%</span>
+              </div>
+              <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: '#e6e7ef' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{ width: `${enrichProgress}%`, background: '#5556fd' }}
+                />
+              </div>
+            </div>
+          )}
+
           {enrichResult && (
             <div className="mt-3 p-2.5 rounded text-xs" style={{
               background: enrichResult.includes('Erreur') || enrichResult.includes('Aucun') ? '#fce8ea' : '#e8f5e8',
               color: enrichResult.includes('Erreur') || enrichResult.includes('Aucun') ? '#dc3545' : '#22a356',
             }}>
               {enrichResult}
+            </div>
+          )}
+
+          {loadingCatalog && (
+            <div className="mt-3">
+              <div className="flex justify-between text-xs mb-1" style={{ color: '#22a356' }}>
+                <span>{catalogLabel}</span>
+                <span>{catalogProgress}%</span>
+              </div>
+              <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: '#e6e7ef' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{ width: `${catalogProgress}%`, background: '#22a356' }}
+                />
+              </div>
             </div>
           )}
 
