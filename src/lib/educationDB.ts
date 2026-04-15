@@ -268,12 +268,15 @@ export async function clearEstablishmentData(etablissementId: string): Promise<{
   enseignants: number;
   enrollments: number;
 }> {
-  const [classes, eleves, enseignants, enrollments] = await Promise.all([
+  const [classes, eleves, enseignants] = await Promise.all([
     db.classes.where('etablissement_id').equals(etablissementId).toArray(),
     db.eleves.where('etablissement_id').equals(etablissementId).toArray(),
     db.enseignants.where('etablissement_id').equals(etablissementId).toArray(),
-    db.enrollments.where('school_id').equals(etablissementId).toArray(),
   ]);
+
+  // enrollments: school_id is not indexed, filter by class IDs instead
+  const classIds = new Set(classes.map(c => c.id));
+  const enrollments = await db.enrollments.filter(e => classIds.has(e.class_id)).toArray();
 
   await Promise.all([
     db.classes.bulkDelete(classes.map(c => c.id)),
