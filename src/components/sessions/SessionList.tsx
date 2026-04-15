@@ -38,10 +38,12 @@ export default function SessionList() {
       const ownerUids = [...new Set(data.map(s => s.ownerId))];
       const names = await getUserDisplayNames(ownerUids);
       setSessions(data.map(s => ({ ...s, ownerName: names[s.ownerId] })));
+    } catch (err) {
+      console.error('[SessionList] Failed to load sessions:', err);
     } finally {
       setLoading(false);
     }
-  }, [user, currentEstablishment]);
+  }, [user, currentEstablishment, isSuperAdmin]);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 

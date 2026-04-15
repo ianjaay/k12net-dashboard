@@ -46,7 +46,7 @@ export async function getUserSessions(uid: string, email: string, establishmentI
   const queries: Promise<import('firebase/firestore').QuerySnapshot>[] = [];
 
   if (establishmentId) {
-    // All sessions in this establishment — members see everything
+    // All sessions in this establishment
     queries.push(getDocs(query(collection(db, 'sessions'), where('establishmentId', '==', establishmentId))));
     // Also include personal sessions (owned + shared) so they don't vanish
     queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid))));
@@ -57,14 +57,19 @@ export async function getUserSessions(uid: string, email: string, establishmentI
     queries.push(getDocs(query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email))));
   }
 
-  const snapshots = await Promise.all(queries);
+  // Use allSettled so one failing query doesn't break the others
+  const results = await Promise.allSettled(queries);
 
   const map = new Map<string, { id: string } & SessionDoc>();
-  for (const snap of snapshots) {
-    for (const s of snap.docs) {
-      if (!map.has(s.id)) {
-        map.set(s.id, { id: s.id, ...(s.data() as SessionDoc) });
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      for (const s of result.value.docs) {
+        if (!map.has(s.id)) {
+          map.set(s.id, { id: s.id, ...(s.data() as SessionDoc) });
+        }
       }
+    } else {
+      console.warn('[getUserSessions] Query failed (permission?):', result.reason);
     }
   }
   return [...map.values()].sort((a, b) => {
