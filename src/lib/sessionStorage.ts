@@ -4,7 +4,7 @@
 // and Firebase Storage as shared cloud storage for collaboration.
 // Cloud reads use getBytes() to avoid CORS issues with getDownloadURL.
 
-import { ref, uploadBytes, getBytes } from 'firebase/storage';
+import { ref, uploadBytes, getBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from './firebase';
 import type { K12AppData } from '../types/k12';
 
@@ -72,17 +72,35 @@ async function saveCloud(sessionId: string, data: K12AppData): Promise<void> {
 }
 
 async function loadCloud(sessionId: string): Promise<K12AppData | null> {
+  const storageRef = ref(storage, cloudPath(sessionId));
+  console.log('[sessionStorage] Attempting cloud load from:', cloudPath(sessionId));
+
+  // Strategy 1: getBytes (SDK direct, works without CORS but may fail on some setups)
   try {
-    const storageRef = ref(storage, cloudPath(sessionId));
-    console.log('[sessionStorage] Attempting cloud load from:', cloudPath(sessionId));
     const bytes = await Promise.race([
       getBytes(storageRef),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Cloud load timeout')), 10000)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('getBytes timeout')), 15000)),
     ]);
+    console.log('[sessionStorage] getBytes succeeded, bytes:', bytes.byteLength);
     const text = new TextDecoder().decode(bytes);
     return JSON.parse(text) as K12AppData;
-  } catch (err) {
-    console.warn('[sessionStorage] Cloud load failed:', err);
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.warn('[sessionStorage] getBytes failed, trying getDownloadURL fallback:', errMsg);
+  }
+
+  // Strategy 2: getDownloadURL + fetch (requires CORS but more reliable)
+  try {
+    const url = await getDownloadURL(storageRef);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    console.log('[sessionStorage] getDownloadURL fallback succeeded');
+    return data as K12AppData;
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const errCode = (err as { code?: string })?.code;
+    console.error('[sessionStorage] Cloud load completely failed:', { code: errCode, message: errMsg });
     return null;
   }
 }
