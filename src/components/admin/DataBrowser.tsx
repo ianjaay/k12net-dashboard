@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   BookOpen, Users, GraduationCap, ChevronRight, ChevronLeft, Search,
-  Loader2, Trash2,
+  Loader2, Trash2, Upload,
 } from 'lucide-react';
 import {
   getClassesByEtablissement,
@@ -13,6 +13,8 @@ import {
   getElevesByEtablissement,
   getEnseignantsByEtablissement,
   clearEstablishmentData,
+  saveEstablishmentToCloud,
+  loadEstablishmentFromCloud,
 } from '../../lib/educationDB';
 import type { ClasseML, EleveML, Enseignant } from '../../types/multiLevel';
 
@@ -48,15 +50,35 @@ export default function DataBrowser({ establishmentId }: Props) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Cloud save/load state
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [cloudLoading, setCloudLoading] = useState(false);
+
   const loadData = useCallback(async () => {
     if (!establishmentId) return;
     setLoading(true);
     try {
-      const [cls, stu, tea] = await Promise.all([
+      let [cls, stu, tea] = await Promise.all([
         getClassesByEtablissement(establishmentId),
         getElevesByEtablissement(establishmentId),
         getEnseignantsByEtablissement(establishmentId),
       ]);
+
+      // If local is empty, try loading from cloud
+      if (cls.length === 0 && stu.length === 0 && tea.length === 0) {
+        setCloudLoading(true);
+        const cloud = await loadEstablishmentFromCloud(establishmentId);
+        setCloudLoading(false);
+        if (cloud && (cloud.classes > 0 || cloud.eleves > 0 || cloud.enseignants > 0)) {
+          [cls, stu, tea] = await Promise.all([
+            getClassesByEtablissement(establishmentId),
+            getElevesByEtablissement(establishmentId),
+            getEnseignantsByEtablissement(establishmentId),
+          ]);
+        }
+      }
+
       setClasses(cls);
       setStudents(stu);
       setTeachers(tea);
@@ -93,6 +115,21 @@ export default function DataBrowser({ establishmentId }: Props) {
     }
   }, [establishmentId]);
 
+  const handleSaveToCloud = useCallback(async () => {
+    if (!establishmentId) return;
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const counts = await saveEstablishmentToCloud(establishmentId);
+      setSaveMessage(`Enregistré : ${counts.classes} classes, ${counts.eleves} élèves, ${counts.enseignants} enseignants`);
+      setTimeout(() => setSaveMessage(null), 5000);
+    } catch (err) {
+      setSaveMessage(`Erreur : ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [establishmentId]);
+
   // Load students for a selected class
   const openClass = useCallback(async (cls: ClasseML) => {
     setSelectedClass(cls);
@@ -118,7 +155,9 @@ export default function DataBrowser({ establishmentId }: Props) {
       <div className="card-cassie p-5 mt-4">
         <div className="flex items-center gap-2 justify-center py-6">
           <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#5556fd' }} />
-          <span className="text-sm" style={{ color: '#8392a5' }}>Chargement des données…</span>
+          <span className="text-sm" style={{ color: '#8392a5' }}>
+            {cloudLoading ? 'Chargement depuis le cloud…' : 'Chargement des données…'}
+          </span>
         </div>
       </div>
     );
@@ -269,15 +308,37 @@ export default function DataBrowser({ establishmentId }: Props) {
         <h3 className="font-medium text-sm" style={{ color: '#06072d' }}>
           Données synchronisées
         </h3>
-        <button
-          onClick={() => setShowDeleteConfirm(true)}
-          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border hover:bg-[#fce8ea] transition-colors"
-          style={{ borderColor: '#e6e7ef', color: '#dc3545' }}
-          title="Supprimer les données synchronisées"
-        >
-          <Trash2 className="w-3.5 h-3.5" /> Supprimer
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={handleSaveToCloud}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border hover:bg-[#f0f0ff] transition-colors disabled:opacity-50"
+            style={{ borderColor: '#e6e7ef', color: '#5556fd' }}
+            title="Enregistrer dans le cloud"
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+            Enregistrer
+          </button>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border hover:bg-[#fce8ea] transition-colors"
+            style={{ borderColor: '#e6e7ef', color: '#dc3545' }}
+            title="Supprimer les données synchronisées"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Supprimer
+          </button>
+        </div>
       </div>
+
+      {/* Save confirmation message */}
+      {saveMessage && (
+        <div className="mb-3 p-2.5 rounded text-xs" style={{
+          background: saveMessage.startsWith('Erreur') ? '#fce8ea' : '#e8f5e8',
+          color: saveMessage.startsWith('Erreur') ? '#dc3545' : '#22a356',
+        }}>
+          {saveMessage}
+        </div>
+      )}
 
       {/* Delete confirmation */}
       {showDeleteConfirm && (

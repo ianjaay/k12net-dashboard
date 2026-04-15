@@ -339,3 +339,117 @@ export async function addSyncLog(log: SyncLog): Promise<void> {
 export async function getSyncLogs(): Promise<SyncLog[]> {
   return db.sync_logs.orderBy('date').reverse().toArray();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLOUD PERSISTENCE — Save/load establishment sync data to Firebase Storage
+// ═══════════════════════════════════════════════════════════════════════════
+
+import { ref, uploadBytes, getDownloadURL, getBytes } from 'firebase/storage';
+import { storage } from './firebase';
+
+interface EstablishmentSyncData {
+  classes: ClasseML[];
+  eleves: EleveML[];
+  enseignants: Enseignant[];
+  enrollments: EnrollmentML[];
+  savedAt: string;
+}
+
+function syncCloudPath(establishmentId: string) {
+  return `establishments/${establishmentId}/syncdata.json`;
+}
+
+/**
+ * Save the synced data of an establishment to Firebase Storage.
+ */
+export async function saveEstablishmentToCloud(establishmentId: string): Promise<{
+  classes: number;
+  eleves: number;
+  enseignants: number;
+  enrollments: number;
+}> {
+  const [classes, eleves, enseignants] = await Promise.all([
+    db.classes.where('etablissement_id').equals(establishmentId).toArray(),
+    db.eleves.where('etablissement_id').equals(establishmentId).toArray(),
+    db.enseignants.where('etablissement_id').equals(establishmentId).toArray(),
+  ]);
+
+  const classIds = new Set(classes.map(c => c.id));
+  const enrollments = await db.enrollments.filter(e => classIds.has(e.class_id)).toArray();
+
+  const payload: EstablishmentSyncData = {
+    classes,
+    eleves,
+    enseignants,
+    enrollments,
+    savedAt: new Date().toISOString(),
+  };
+
+  const json = JSON.stringify(payload);
+  const blob = new Blob([json], { type: 'application/json' });
+  const storageRef = ref(storage, syncCloudPath(establishmentId));
+  await uploadBytes(storageRef, blob);
+  console.log('[educationDB] Synced data saved to cloud:', syncCloudPath(establishmentId), 'size:', json.length);
+
+  return {
+    classes: classes.length,
+    eleves: eleves.length,
+    enseignants: enseignants.length,
+    enrollments: enrollments.length,
+  };
+}
+
+/**
+ * Load an establishment's synced data from Firebase Storage into IndexedDB.
+ * Returns counts or null if no cloud data exists.
+ */
+export async function loadEstablishmentFromCloud(establishmentId: string): Promise<{
+  classes: number;
+  eleves: number;
+  enseignants: number;
+  enrollments: number;
+} | null> {
+  const storageRef = ref(storage, syncCloudPath(establishmentId));
+
+  let data: EstablishmentSyncData | null = null;
+
+  // Primary: getDownloadURL + fetch
+  try {
+    const url = await getDownloadURL(storageRef);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    data = await response.json();
+  } catch (err: unknown) {
+    const errCode = (err as { code?: string })?.code;
+    if (errCode === 'storage/object-not-found') return null;
+    // Fallback: getBytes
+    try {
+      const bytes = await Promise.race([
+        getBytes(storageRef),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
+      data = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      return null;
+    }
+  }
+
+  if (!data) return null;
+
+  // Write to IndexedDB
+  await Promise.all([
+    data.classes.length > 0 ? db.classes.bulkPut(data.classes) : Promise.resolve(),
+    data.eleves.length > 0 ? db.eleves.bulkPut(data.eleves) : Promise.resolve(),
+    data.enseignants.length > 0 ? db.enseignants.bulkPut(data.enseignants) : Promise.resolve(),
+    data.enrollments.length > 0 ? db.enrollments.bulkPut(data.enrollments) : Promise.resolve(),
+  ]);
+
+  console.log('[educationDB] Synced data loaded from cloud:', syncCloudPath(establishmentId));
+
+  return {
+    classes: data.classes.length,
+    eleves: data.eleves.length,
+    enseignants: data.enseignants.length,
+    enrollments: data.enrollments.length,
+  };
+}
