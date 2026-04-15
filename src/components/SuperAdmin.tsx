@@ -22,7 +22,7 @@ import {
   updateMemberRole,
   listEstablishmentMembers,
 } from '../lib/firestoreEstablishments';
-import { getAllUsers } from '../lib/firestore';
+import { getAllUsers, getUserDisplayNames } from '../lib/firestore';
 import type {
   Establishment,
   EstablishmentCreateData,
@@ -114,6 +114,8 @@ export default function SuperAdmin() {
 
   // member counts per establishment
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
+  // owner names per establishment
+  const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
 
   // --- data loading ---
   const loadEstablishments = useCallback(async () => {
@@ -136,6 +138,13 @@ export default function SuperAdmin() {
         })
       );
       setMemberCounts(counts);
+
+      // load owner display names
+      const creatorUids = [...new Set(list.map(e => e.createdBy).filter(Boolean))];
+      if (creatorUids.length > 0) {
+        const names = await getUserDisplayNames(creatorUids);
+        setOwnerNames(names);
+      }
     } catch (err) {
       setError('Erreur lors du chargement des établissements.');
       console.error(err);
@@ -863,6 +872,11 @@ export default function SuperAdmin() {
                 <h3 className="text-sm font-semibold mb-1" style={{ color: '#06072d' }}>
                   {est.name}
                 </h3>
+                {ownerNames[est.createdBy] && (
+                  <p className="text-xs mb-1" style={{ color: '#575d78' }}>
+                    Créé par {ownerNames[est.createdBy]}
+                  </p>
+                )}
                 {est.code && (
                   <p className="text-xs mb-2" style={{ color: '#8392a5' }}>
                     Code : {est.code}

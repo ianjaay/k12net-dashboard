@@ -42,23 +42,16 @@ export async function createSession(uid: string, email: string, name: string, de
   return ref.id;
 }
 
-export async function getUserSessions(uid: string, email: string, establishmentId?: string, _isSuperAdmin = false, establishmentMemberUids?: string[]): Promise<Array<{ id: string } & SessionDoc>> {
+export async function getUserSessions(uid: string, email: string, establishmentId?: string, _isSuperAdmin = false): Promise<Array<{ id: string } & SessionDoc>> {
   const queries: Promise<import('firebase/firestore').QuerySnapshot>[] = [];
 
-  // Always include user's own sessions and shared sessions
-  queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid))));
-  queries.push(getDocs(query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email))));
-
   if (establishmentId) {
-    // Sessions explicitly tagged with this establishment
+    // Only sessions belonging to this establishment
     queries.push(getDocs(query(collection(db, 'sessions'), where('establishmentId', '==', establishmentId))));
-    // Sessions created by ANY member of this establishment (catches sessions without establishmentId)
-    if (establishmentMemberUids && establishmentMemberUids.length > 0) {
-      for (let i = 0; i < establishmentMemberUids.length; i += 30) {
-        const chunk = establishmentMemberUids.slice(i, i + 30);
-        queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', 'in', chunk))));
-      }
-    }
+  } else {
+    // No establishment selected — show user's own + shared sessions
+    queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid))));
+    queries.push(getDocs(query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email))));
   }
 
   // Use allSettled so one failing query doesn't break the others
