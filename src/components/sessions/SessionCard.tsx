@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { SessionDoc, SessionRole } from '../../types';
 
 interface Props {
-  session: { id: string } & SessionDoc;
+  session: { id: string; ownerName?: string } & SessionDoc;
   userRole: SessionRole;
   onClick: () => void;
   onRename: (name: string) => void;
@@ -100,6 +100,10 @@ export default function SessionCard({ session, userRole, onClick, onRename, onDe
 
       {session.description && (
         <p className="text-sm mb-3 line-clamp-2" style={{ color: '#8392a5' }}>{session.description}</p>
+      )}
+
+      {session.ownerName && (
+        <p className="text-xs mb-2" style={{ color: '#575d78' }}>Par {session.ownerName}</p>
       )}
 
       <div className="flex items-center justify-between mt-3">

@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useGlobalSettings } from '../../contexts/GlobalSettingsContext';
 import { useEstablishment } from '../../contexts/EstablishmentContext';
 import { useTranslation } from 'react-i18next';
-import { getUserSessions, createSession, deleteSession, updateSession, removeSharing } from '../../lib/firestore';
+import { getUserSessions, getUserDisplayNames, createSession, deleteSession, updateSession, removeSharing } from '../../lib/firestore';
 import type { SessionDoc, SessionRole } from '../../types';
 import SessionCard from './SessionCard';
 import CreateSessionModal from './CreateSessionModal';
@@ -19,7 +19,7 @@ export default function SessionList() {
   const { currentEstablishment } = useEstablishment();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [sessions, setSessions] = useState<Array<{ id: string } & SessionDoc>>([]);
+  const [sessions, setSessions] = useState<Array<{ id: string; ownerName?: string } & SessionDoc>>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [shareSessionId, setShareSessionId] = useState<string | null>(null);
@@ -32,8 +32,12 @@ export default function SessionList() {
         user.uid,
         user.email ?? `guest-${user.uid}@anonymous`,
         currentEstablishment?.id,
+        isSuperAdmin,
       );
-      setSessions(data);
+      // Resolve owner display names
+      const ownerUids = [...new Set(data.map(s => s.ownerId))];
+      const names = await getUserDisplayNames(ownerUids);
+      setSessions(data.map(s => ({ ...s, ownerName: names[s.ownerId] })));
     } finally {
       setLoading(false);
     }

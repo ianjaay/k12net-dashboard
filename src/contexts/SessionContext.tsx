@@ -71,7 +71,7 @@ interface SessionState {
 const SessionContext = createContext<SessionState | null>(null);
 
 export function SessionProvider({ sessionId, children }: { sessionId: string; children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
   const [session, setSession] = useState<({ id: string } & SessionDoc) | null>(null);
   const [appData, setAppData] = useState<K12AppData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,8 +86,9 @@ export function SessionProvider({ sessionId, children }: { sessionId: string; ch
 
   const userRole: SessionRole = useMemo(() => {
     if (!session || !user) return 'reader';
+    if (isSuperAdmin) return 'owner';
     return session.members[user.uid] ?? 'reader';
-  }, [session, user]);
+  }, [session, user, isSuperAdmin]);
 
   const loadData = useCallback(async () => {
     setLoading(true);

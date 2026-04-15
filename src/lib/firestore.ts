@@ -42,12 +42,15 @@ export async function createSession(uid: string, email: string, name: string, de
   return ref.id;
 }
 
-export async function getUserSessions(uid: string, email: string, establishmentId?: string): Promise<Array<{ id: string } & SessionDoc>> {
+export async function getUserSessions(uid: string, email: string, establishmentId?: string, isSuperAdmin = false): Promise<Array<{ id: string } & SessionDoc>> {
   const queries: Promise<import('firebase/firestore').QuerySnapshot>[] = [];
 
   if (establishmentId) {
     // All sessions in this establishment — members see everything
     queries.push(getDocs(query(collection(db, 'sessions'), where('establishmentId', '==', establishmentId))));
+    // Also include personal sessions (owned + shared) so they don't vanish
+    queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid))));
+    queries.push(getDocs(query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email))));
   } else {
     // No establishment context — show owned + shared
     queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid))));
@@ -69,6 +72,21 @@ export async function getUserSessions(uid: string, email: string, establishmentI
     const tb = (b.updatedAt as { seconds?: number })?.seconds ?? 0;
     return tb - ta;
   });
+}
+
+export async function getUserDisplayNames(uids: string[]): Promise<Record<string, string>> {
+  const unique = [...new Set(uids)];
+  const result: Record<string, string> = {};
+  await Promise.all(unique.map(async uid => {
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      if (snap.exists()) {
+        const data = snap.data() as { displayName?: string; email?: string };
+        result[uid] = data.displayName || data.email || uid;
+      }
+    } catch { /* ignore */ }
+  }));
+  return result;
 }
 
 export async function getSession(sessionId: string): Promise<({ id: string } & SessionDoc) | null> {
