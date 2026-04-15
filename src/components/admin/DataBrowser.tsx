@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   BookOpen, Users, GraduationCap, ChevronRight, ChevronLeft, Search,
-  Loader2, Trash2, Upload,
+  Loader2, Trash2, Upload, Send,
 } from 'lucide-react';
 import {
   getClassesByEtablissement,
@@ -16,7 +16,9 @@ import {
   saveEstablishmentToCloud,
   loadEstablishmentFromCloud,
 } from '../../lib/educationDB';
+import { updateEstablishment } from '../../lib/firestoreEstablishments';
 import type { ClasseML, EleveML, Enseignant } from '../../types/multiLevel';
+import type { CourseDefinition } from '../../types/k12';
 
 type Tab = 'classes' | 'students' | 'teachers';
 
@@ -24,9 +26,13 @@ interface Props {
   /** The OneRoster sourcedId used as establishment ID in educationDB */
   establishmentId: string | null;
   establishmentName: string;
+  /** Firestore establishment ID to update courseCatalog */
+  firestoreEstablishmentId?: string;
+  /** Existing course catalog to merge with */
+  existingCatalog?: CourseDefinition[];
 }
 
-export default function DataBrowser({ establishmentId }: Props) {
+export default function DataBrowser({ establishmentId, firestoreEstablishmentId, existingCatalog }: Props) {
   const [tab, setTab] = useState<Tab>('classes');
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -54,6 +60,7 @@ export default function DataBrowser({ establishmentId }: Props) {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [cloudLoading, setCloudLoading] = useState(false);
+  const [pushing, setPushing] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!establishmentId) return;
@@ -129,6 +136,87 @@ export default function DataBrowser({ establishmentId }: Props) {
       setSaving(false);
     }
   }, [establishmentId]);
+
+  /**
+   * Push synced classes as course catalog entries to the Firestore establishment.
+   * - If a catalog already exists, updates classrooms lists with synced class names.
+   * - If no catalog exists, creates one entry per class.
+   */
+  const handlePushCatalog = useCallback(async () => {
+    if (!firestoreEstablishmentId || classes.length === 0) return;
+    setPushing(true);
+    setSaveMessage(null);
+    try {
+      const classNames = classes.map(c => c.nom);
+
+      if (existingCatalog && existingCatalog.length > 0) {
+        // Merge: for each catalog entry, update classrooms to include synced classes
+        // that match the same grade level / branch
+        const updated = existingCatalog.map(course => {
+          const matchingClasses = classes
+            .filter(c => {
+              // Match by grade level pattern in class name
+              const courseClassrooms = course.classrooms || [];
+              // Keep existing classrooms + add new ones from sync
+              return courseClassrooms.some(cr => c.nom === cr) ||
+                classNames.some(cn => cn === c.nom && course.classrooms.includes(cn));
+            });
+          return {
+            ...course,
+            classrooms: [...new Set([
+              ...course.classrooms,
+              ...matchingClasses.map(c => c.nom),
+            ])],
+          };
+        });
+        await updateEstablishment(firestoreEstablishmentId, {
+          courseCatalog: updated,
+        });
+      } else {
+        // No existing catalog: create one entry per unique level+serie combination
+        // This gives the admin a starting structure to work with
+        const byLevel = new Map<string, ClasseML[]>();
+        for (const cls of classes) {
+          const key = `${cls.niveau}${cls.serie ? `_${cls.serie}` : ''}`;
+          if (!byLevel.has(key)) byLevel.set(key, []);
+          byLevel.get(key)!.push(cls);
+        }
+
+        const catalog: CourseDefinition[] = [];
+        for (const [, groupClasses] of byLevel) {
+          const first = groupClasses[0];
+          const levelMap: Record<string, string> = {
+            'Sixième': '07', 'Cinquième': '08', 'Quatrième': '09', 'Troisième': '10',
+            'Seconde': '11', 'Première': '12', 'Terminale': '13',
+          };
+          const gradeLevel = (levelMap[first.niveau] || '07') as import('../../types/k12').GradeLevel;
+          const branch = (first.serie || null) as import('../../types/k12').Branch | null;
+          catalog.push({
+            code: `CLS_${first.niveau}${first.serie ? `_${first.serie}` : ''}`,
+            name: `${first.niveau}${first.serie ? ` ${first.serie}` : ''}`,
+            gradeLevel,
+            branch,
+            coefficient: 0,
+            weeklyHours: 0,
+            classrooms: groupClasses.map(c => c.nom),
+            studentCount: 0,
+            teachers: [],
+          });
+        }
+
+        await updateEstablishment(firestoreEstablishmentId, {
+          courseCatalog: catalog,
+        });
+      }
+
+      setSaveMessage(`${classNames.length} classes appliquées au catalogue de l'établissement`);
+      setTimeout(() => setSaveMessage(null), 5000);
+    } catch (err) {
+      setSaveMessage(`Erreur : ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setPushing(false);
+    }
+  }, [firestoreEstablishmentId, classes, existingCatalog]);
 
   // Load students for a selected class
   const openClass = useCallback(async (cls: ClasseML) => {
@@ -319,6 +407,18 @@ export default function DataBrowser({ establishmentId }: Props) {
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
             Enregistrer
           </button>
+          {firestoreEstablishmentId && totalClasses > 0 && (
+            <button
+              onClick={handlePushCatalog}
+              disabled={pushing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border hover:bg-[#e8f5e8] transition-colors disabled:opacity-50"
+              style={{ borderColor: '#e6e7ef', color: '#22a356' }}
+              title="Appliquer les classes comme catalogue de cours"
+            >
+              {pushing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              Appliquer au catalogue
+            </button>
+          )}
           <button
             onClick={() => setShowDeleteConfirm(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border hover:bg-[#fce8ea] transition-colors"

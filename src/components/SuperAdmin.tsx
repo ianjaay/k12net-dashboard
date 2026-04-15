@@ -579,6 +579,8 @@ export default function SuperAdmin() {
           <DataBrowser
             establishmentId={matchedSchoolId}
             establishmentName={selectedEstablishment.name}
+            firestoreEstablishmentId={selectedEstablishment.id}
+            existingCatalog={selectedEstablishment.courseCatalog}
           />
         </main>
 
