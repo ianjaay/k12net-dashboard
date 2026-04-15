@@ -43,9 +43,11 @@ interface Props {
   establishmentName: string;
   /** We'll try to match this name against OneRoster schools */
   establishmentCode?: string;
+  /** Called when a school is matched/selected, providing its API sourcedId */
+  onSchoolMatched?: (schoolId: string | null) => void;
 }
 
-export default function DataSyncPanel({ establishmentName, establishmentCode }: Props) {
+export default function DataSyncPanel({ establishmentName, establishmentCode, onSchoolMatched }: Props) {
   const [apiConfig, setApiConfig] = useState<OneRosterApiConfig | null>(null);
   const [service, setService] = useState<OneRosterService | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,6 +134,11 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
       }
     })();
   }, [service]);
+
+  // Notify parent when matched school changes
+  useEffect(() => {
+    onSchoolMatched?.(matchedSchoolId);
+  }, [matchedSchoolId, onSchoolMatched]);
 
   const now = () => new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 

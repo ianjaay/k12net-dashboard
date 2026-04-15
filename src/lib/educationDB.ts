@@ -258,6 +258,39 @@ export async function clearAllData(): Promise<void> {
   ]);
 }
 
+/**
+ * Delete all synced data for a specific establishment.
+ * Removes classes, students, teachers, enrollments, and the establishment itself.
+ */
+export async function clearEstablishmentData(etablissementId: string): Promise<{
+  classes: number;
+  eleves: number;
+  enseignants: number;
+  enrollments: number;
+}> {
+  const [classes, eleves, enseignants, enrollments] = await Promise.all([
+    db.classes.where('etablissement_id').equals(etablissementId).toArray(),
+    db.eleves.where('etablissement_id').equals(etablissementId).toArray(),
+    db.enseignants.where('etablissement_id').equals(etablissementId).toArray(),
+    db.enrollments.where('school_id').equals(etablissementId).toArray(),
+  ]);
+
+  await Promise.all([
+    db.classes.bulkDelete(classes.map(c => c.id)),
+    db.eleves.bulkDelete(eleves.map(e => e.id)),
+    db.enseignants.bulkDelete(enseignants.map(e => e.id)),
+    db.enrollments.bulkDelete(enrollments.map(e => e.id)),
+    db.etablissements.delete(etablissementId),
+  ]);
+
+  return {
+    classes: classes.length,
+    eleves: eleves.length,
+    enseignants: enseignants.length,
+    enrollments: enrollments.length,
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ENSEIGNANTS
 // ═══════════════════════════════════════════════════════════════════════════

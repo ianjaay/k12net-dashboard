@@ -14,6 +14,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import ApiConfigPanel from './admin/ApiConfigPanel';
 import DataSyncPanel from './admin/DataSyncPanel';
+import DataBrowser from './admin/DataBrowser';
 import {
   createEstablishment,
   updateEstablishment,
@@ -118,6 +119,9 @@ export default function SuperAdmin() {
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
   // owner names per establishment
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
+
+  // matched API school ID for data browser
+  const [matchedSchoolId, setMatchedSchoolId] = useState<string | null>(null);
 
   // --- data loading ---
   const loadEstablishments = useCallback(async () => {
@@ -568,6 +572,13 @@ export default function SuperAdmin() {
           <DataSyncPanel
             establishmentName={selectedEstablishment.name}
             establishmentCode={selectedEstablishment.code}
+            onSchoolMatched={setMatchedSchoolId}
+          />
+
+          {/* Data browser */}
+          <DataBrowser
+            establishmentId={matchedSchoolId}
+            establishmentName={selectedEstablishment.name}
           />
         </main>
 
