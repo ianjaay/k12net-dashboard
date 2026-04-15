@@ -9,9 +9,10 @@
  * 4. Match by matricule (identifier) and enrich K12Student fields
  */
 import { OneRosterService } from './oneRosterService';
-import { getApiConfig } from './educationDB';
+import { getApiConfig, getElevesByEtablissement, getAllEtablissements } from './educationDB';
 import type { OneRosterUser } from '../types/oneRoster';
 import type { K12Student, K12AppData } from '../types/k12';
+import type { EleveML } from '../types/multiLevel';
 
 /** Enrich K12AppData students with personal info from the OneRoster API.
  *  Returns the enriched data (same reference mutated for performance). */
@@ -147,4 +148,99 @@ function applyPersonalInfo(student: K12Student, apiUser: OneRosterUser): void {
 export async function isApiConfigured(): Promise<boolean> {
   const config = await getApiConfig();
   return !!config?.baseUrl && !!config?.clientId;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOCAL DB ENRICHMENT — use synced educationDB data (no API call needed)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Enrich K12AppData students from locally synced data in educationDB.
+ * This is faster and works offline — uses the data already synced via SuperAdmin.
+ */
+export async function enrichStudentsFromLocalDB(
+  data: K12AppData,
+): Promise<{ enriched: number; total: number; error?: string }> {
+  // Gather all synced students from all establishments
+  let allEleves: EleveML[] = [];
+  try {
+    const etablissements = await getAllEtablissements();
+    if (etablissements.length === 0) {
+      return { enriched: 0, total: data.students.length, error: 'Aucun établissement synchronisé.' };
+    }
+    const results = await Promise.all(
+      etablissements.map(e => getElevesByEtablissement(e.id)),
+    );
+    allEleves = results.flat();
+  } catch (err) {
+    return { enriched: 0, total: data.students.length, error: `Erreur lecture BD: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  if (allEleves.length === 0) {
+    return { enriched: 0, total: data.students.length, error: 'Aucun élève synchronisé. Synchronisez d\'abord les données dans Super Admin.' };
+  }
+
+  // Build lookup maps
+  const byMatricule = new Map<string, EleveML>();
+  const byName = new Map<string, EleveML>();
+  for (const e of allEleves) {
+    const mat = (e.matricule || '').trim();
+    if (mat) byMatricule.set(mat, e);
+    const name = `${e.nom} ${e.prenom}`.trim().toLowerCase();
+    if (name) byName.set(name, e);
+    // Also reversed name order
+    const nameRev = `${e.prenom} ${e.nom}`.trim().toLowerCase();
+    if (nameRev) byName.set(nameRev, e);
+  }
+
+  // Enrich each student
+  let enriched = 0;
+
+  function tryEnrich(student: K12Student): boolean {
+    const match = byMatricule.get(student.matricule.trim())
+      ?? byName.get(student.fullName.trim().toLowerCase())
+      ?? byName.get(`${student.lastName} ${student.firstName}`.trim().toLowerCase());
+
+    if (match) {
+      applyLocalInfo(student, match);
+      return true;
+    }
+    return false;
+  }
+
+  for (const student of data.students) {
+    if (tryEnrich(student)) enriched++;
+  }
+
+  // Also update students inside classes
+  for (const cls of data.classes) {
+    for (const student of cls.students) {
+      tryEnrich(student);
+    }
+  }
+
+  console.log(`[enrichment] Enriched ${enriched}/${data.students.length} students from local DB`);
+  return { enriched, total: data.students.length };
+}
+
+function applyLocalInfo(student: K12Student, eleve: EleveML): void {
+  if (eleve.matricule && !student.matricule) {
+    student.matricule = eleve.matricule;
+  }
+  // Always set matricule if student has none or it's a placeholder
+  if (eleve.matricule && (!student.matricule || student.matricule === student.id)) {
+    student.matricule = eleve.matricule;
+  }
+  if (eleve.date_naissance && !student.dateNaissance) {
+    student.dateNaissance = eleve.date_naissance;
+  }
+  if (eleve.sexe && !student.sexe) {
+    student.sexe = eleve.sexe as 'Masculin' | 'Féminin';
+  }
+  if (eleve.nationalite && !student.nationalite) {
+    student.nationalite = eleve.nationalite;
+  }
+  if (eleve.lieu_naissance && !student.lieuNaissance) {
+    student.lieuNaissance = eleve.lieu_naissance;
+  }
 }

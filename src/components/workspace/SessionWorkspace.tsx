@@ -8,7 +8,7 @@ import { useGlobalSettings } from '../../contexts/GlobalSettingsContext';
 import { parseGradesExcel } from '../../utils/gradesParser';
 import { buildSubjectsByClass } from '../../utils/sectionListParser';
 import { processClass, getRulesForYear } from '../../utils/k12RulesEngine';
-import { enrichStudentsFromApi, isApiConfigured } from '../../lib/studentEnrichment';
+import { enrichStudentsFromApi, enrichStudentsFromLocalDB, isApiConfigured } from '../../lib/studentEnrichment';
 import type { K12AppData, K12Class, K12Student, AcademicYear, GradeLevel } from '../../types/k12';
 import { GRADE_LEVEL_LABELS } from '../../types/k12';
 
@@ -322,20 +322,27 @@ function EmptyStateUpload({ session, globalSettings, settings, navigate, handleK
         students: allStudents,
       };
 
-      // Enrich students with personal info from API if configured
-      const apiReady = await isApiConfigured();
-      if (apiReady) {
-        setImportStatus('Chargement des informations élèves via API…');
-        try {
-          const result = await enrichStudentsFromApi(data);
-          if (result.enriched > 0) {
-            setImportStatus(`${result.enriched}/${result.total} élèves enrichis`);
-          } else if (result.error) {
-            console.warn('[enrichment]', result.error);
+      // Enrich students with personal info — try local DB first (fast), then API
+      setImportStatus('Enrichissement des données élèves…');
+      try {
+        const localResult = await enrichStudentsFromLocalDB(data);
+        if (localResult.enriched > 0) {
+          setImportStatus(`${localResult.enriched}/${localResult.total} élèves enrichis (données synchronisées)`);
+        } else {
+          // Fallback to API if local DB has nothing
+          const apiReady = await isApiConfigured();
+          if (apiReady) {
+            setImportStatus('Chargement des informations élèves via API…');
+            const result = await enrichStudentsFromApi(data);
+            if (result.enriched > 0) {
+              setImportStatus(`${result.enriched}/${result.total} élèves enrichis (API)`);
+            } else if (result.error) {
+              console.warn('[enrichment]', result.error);
+            }
           }
-        } catch (err) {
-          console.warn('[enrichment] Non-blocking error:', err);
         }
+      } catch (err) {
+        console.warn('[enrichment] Non-blocking error:', err);
       }
 
       setImportStatus('Sauvegarde…');
