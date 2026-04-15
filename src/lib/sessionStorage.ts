@@ -68,7 +68,9 @@ async function saveCloud(sessionId: string, data: K12AppData): Promise<void> {
   const json = JSON.stringify(data);
   const blob = new Blob([json], { type: 'application/json' });
   const storageRef = ref(storage, cloudPath(sessionId));
+  console.log('[sessionStorage] Uploading to cloud:', cloudPath(sessionId), 'size:', json.length);
   await uploadBytes(storageRef, blob);
+  console.log('[sessionStorage] Upload completed for:', cloudPath(sessionId));
 }
 
 async function loadCloud(sessionId: string): Promise<K12AppData | null> {
@@ -120,14 +122,21 @@ export async function saveSessionAppData(sessionId: string, data: K12AppData): P
   }
 }
 
-/** Load K12AppData: local cache first, then cloud fallback */
+/** Load K12AppData: local cache first, then cloud fallback.
+ *  If data is found locally but not in cloud, syncs to cloud for shared users. */
 export async function loadSessionAppData(sessionId: string): Promise<K12AppData | null> {
   // Try local cache first (instant)
+  let local: K12AppData | null = null;
   try {
-    const local = await loadLocal(sessionId);
-    if (local) return local;
+    local = await loadLocal(sessionId);
   } catch (err) {
     console.warn('[sessionStorage] Local load failed:', err);
+  }
+
+  if (local) {
+    // Ensure cloud copy exists (async, non-blocking) so shared users can access it
+    ensureCloudCopy(sessionId, local);
+    return local;
   }
 
   // Fall back to cloud (shared sessions)
@@ -142,6 +151,28 @@ export async function loadSessionAppData(sessionId: string): Promise<K12AppData 
 
   console.log('[sessionStorage] No data found (local or cloud)');
   return null;
+}
+
+/** Ensure cloud copy exists — called when we have local data.
+ *  Checks if cloud file exists; if not, uploads it. */
+async function ensureCloudCopy(sessionId: string, data: K12AppData): Promise<void> {
+  try {
+    const storageRef = ref(storage, cloudPath(sessionId));
+    // Quick check: try to get metadata (getDownloadURL is fast and tells us if file exists)
+    await getDownloadURL(storageRef);
+    // File exists, nothing to do
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code;
+    if (code === 'storage/object-not-found') {
+      console.log('[sessionStorage] Cloud copy missing, uploading...');
+      try {
+        await saveCloud(sessionId, data);
+        console.log('[sessionStorage] Cloud copy synced successfully');
+      } catch (uploadErr) {
+        console.error('[sessionStorage] Cloud sync failed:', uploadErr);
+      }
+    }
+  }
 }
 
 /** Delete K12AppData from local cache only (cloud stays for shared users) */
