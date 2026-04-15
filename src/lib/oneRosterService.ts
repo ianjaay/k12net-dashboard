@@ -460,12 +460,19 @@ export function buildOrgTree(orgs: OneRosterOrg[]): OrgSelectionTree {
 }
 
 export function buildSessionSelections(sessions: OneRosterSession[]): SessionSelection[] {
-  const annees = sessions.filter(s => s.type === 'schoolYear');
+  const annees = sessions.filter(s => {
+    const t = (s.type || '').toLowerCase();
+    return t === 'schoolyear' || t === 'school_year' || t === 'year';
+  });
+  // Fallback: sessions with schoolYear field but no parent (top-level)
+  const finalAnnees = annees.length > 0
+    ? annees
+    : sessions.filter(s => s.schoolYear && !s.parent);
   const trimestres = sessions.filter(s =>
-    ['term', 'gradingPeriod', 'semester'].includes(s.type),
+    ['term', 'gradingperiod', 'semester'].includes((s.type || '').toLowerCase()),
   );
 
-  return annees.map(a => ({
+  return finalAnnees.map(a => ({
     session: a,
     selected: false,
     trimestres: trimestres.filter(t => t.parent?.sourcedId === a.sourcedId),

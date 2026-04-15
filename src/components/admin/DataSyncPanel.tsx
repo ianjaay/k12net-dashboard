@@ -121,11 +121,20 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
           setMatchedSchoolName(schoolList[0].name);
         }
 
-        // Academic years (type = 'schoolYear')
-        const years = sessions.filter(s => s.type === 'schoolYear')
-          .sort((a, b) => b.schoolYear.localeCompare(a.schoolYear));
-        setAcademicYears(years);
-        if (years.length > 0) setSelectedYearId(years[0].sourcedId);
+        // Academic years — accept 'schoolYear' (case-insensitive) or sessions with schoolYear field
+        const years = sessions.filter(s => {
+          const t = (s.type || '').toLowerCase();
+          return t === 'schoolyear' || t === 'school_year' || t === 'year';
+        });
+        // If strict filter finds nothing, fall back to all sessions that have a schoolYear value
+        const finalYears = years.length > 0
+          ? years
+          : sessions.filter(s => s.schoolYear && !s.parent);
+        // Last fallback: show all sessions
+        const display = finalYears.length > 0 ? finalYears : sessions;
+        const sorted = display.sort((a, b) => b.schoolYear.localeCompare(a.schoolYear));
+        setAcademicYears(sorted);
+        if (sorted.length > 0) setSelectedYearId(sorted[0].sourcedId);
       } catch (err) {
         addLog(`Erreur de connexion API: ${err instanceof Error ? err.message : String(err)}`, 'error');
       } finally {
