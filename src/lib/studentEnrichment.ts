@@ -183,28 +183,38 @@ export async function enrichStudentsFromLocalDB(
   // Build lookup maps
   const byMatricule = new Map<string, EleveML>();
   const byName = new Map<string, EleveML>();
+  const byNormalized = new Map<string, EleveML>();
   for (const e of allEleves) {
     const mat = (e.matricule || '').trim();
     if (mat) byMatricule.set(mat, e);
+    // "NOM PRENOM" and "PRENOM NOM"
     const name = `${e.nom} ${e.prenom}`.trim().toLowerCase();
     if (name) byName.set(name, e);
-    // Also reversed name order
     const nameRev = `${e.prenom} ${e.nom}`.trim().toLowerCase();
     if (nameRev) byName.set(nameRev, e);
+    // Normalized: sort all name parts alphabetically for order-independent matching
+    const normalized = `${e.nom} ${e.prenom}`.trim().toLowerCase().split(/\s+/).sort().join(' ');
+    if (normalized) byNormalized.set(normalized, e);
   }
 
   // Enrich each student
   let enriched = 0;
 
   function tryEnrich(student: K12Student): boolean {
-    const match = byMatricule.get(student.matricule.trim())
-      ?? byName.get(student.fullName.trim().toLowerCase())
-      ?? byName.get(`${student.lastName} ${student.firstName}`.trim().toLowerCase());
-
-    if (match) {
-      applyLocalInfo(student, match);
-      return true;
+    // 1. By matricule (exact)
+    if (student.matricule.trim()) {
+      const match = byMatricule.get(student.matricule.trim());
+      if (match) { applyLocalInfo(student, match); return true; }
     }
+    // 2. By full name (exact, both orders)
+    const fullLower = student.fullName.trim().toLowerCase();
+    const matchName = byName.get(fullLower)
+      ?? byName.get(`${student.lastName} ${student.firstName}`.trim().toLowerCase());
+    if (matchName) { applyLocalInfo(student, matchName); return true; }
+    // 3. By normalized name (order-independent)
+    const normalizedStudent = fullLower.split(/\s+/).sort().join(' ');
+    const matchNorm = byNormalized.get(normalizedStudent);
+    if (matchNorm) { applyLocalInfo(student, matchNorm); return true; }
     return false;
   }
 
