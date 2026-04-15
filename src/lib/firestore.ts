@@ -45,22 +45,20 @@ export async function createSession(uid: string, email: string, name: string, de
 export async function getUserSessions(uid: string, email: string, establishmentId?: string, _isSuperAdmin = false, establishmentMemberUids?: string[]): Promise<Array<{ id: string } & SessionDoc>> {
   const queries: Promise<import('firebase/firestore').QuerySnapshot>[] = [];
 
+  // Always include user's own sessions and shared sessions
+  queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid))));
+  queries.push(getDocs(query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email))));
+
   if (establishmentId) {
     // Sessions explicitly tagged with this establishment
     queries.push(getDocs(query(collection(db, 'sessions'), where('establishmentId', '==', establishmentId))));
     // Sessions created by ANY member of this establishment (catches sessions without establishmentId)
     if (establishmentMemberUids && establishmentMemberUids.length > 0) {
       for (let i = 0; i < establishmentMemberUids.length; i += 30) {
-        const batch = establishmentMemberUids.slice(i, i + 30);
-        queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', 'in', batch))));
+        const chunk = establishmentMemberUids.slice(i, i + 30);
+        queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', 'in', chunk))));
       }
     }
-    // Sessions shared with the current user
-    queries.push(getDocs(query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email))));
-  } else {
-    // No establishment context — show owned + shared
-    queries.push(getDocs(query(collection(db, 'sessions'), where('ownerId', '==', uid))));
-    queries.push(getDocs(query(collection(db, 'sessions'), where('memberEmails', 'array-contains', email))));
   }
 
   // Use allSettled so one failing query doesn't break the others
