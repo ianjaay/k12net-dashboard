@@ -8,6 +8,7 @@ import { useGlobalSettings } from '../../contexts/GlobalSettingsContext';
 import { parseGradesExcel } from '../../utils/gradesParser';
 import { buildSubjectsByClass } from '../../utils/sectionListParser';
 import { processClass, getRulesForYear } from '../../utils/k12RulesEngine';
+import { enrichStudentsFromApi, isApiConfigured } from '../../lib/studentEnrichment';
 import type { K12AppData, K12Class, K12Student, AcademicYear, GradeLevel } from '../../types/k12';
 import { GRADE_LEVEL_LABELS } from '../../types/k12';
 
@@ -281,17 +282,21 @@ interface EmptyStateUploadProps {
 function EmptyStateUpload({ session, globalSettings, settings, navigate, handleK12DataReady, userRole }: EmptyStateUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setError(null);
+    setImportStatus(null);
     setImporting(true);
     try {
+      setImportStatus('Lecture du fichier…');
       const buf = await file.arrayBuffer();
       const subjectsByClass = settings.courseCatalog
         ? buildSubjectsByClass(settings.courseCatalog)
         : undefined;
 
+      setImportStatus('Analyse des classes…');
       const classes = parseGradesExcel(buf, subjectsByClass);
       if (classes.length === 0) {
         throw new Error('Aucune classe trouvée dans le fichier.');
@@ -300,6 +305,7 @@ function EmptyStateUpload({ session, globalSettings, settings, navigate, handleK
       const academicYear: AcademicYear = settings.academicYear ?? '2024';
       const rulesConfig = settings.rulesConfig ?? getRulesForYear(academicYear, settings.yearConfigs);
 
+      setImportStatus('Traitement des élèves…');
       const processedClasses: K12Class[] = classes.map(cls => ({
         ...cls,
         students: processClass(cls.students, rulesConfig),
@@ -316,6 +322,23 @@ function EmptyStateUpload({ session, globalSettings, settings, navigate, handleK
         students: allStudents,
       };
 
+      // Enrich students with personal info from API if configured
+      const apiReady = await isApiConfigured();
+      if (apiReady) {
+        setImportStatus('Chargement des informations élèves via API…');
+        try {
+          const result = await enrichStudentsFromApi(data);
+          if (result.enriched > 0) {
+            setImportStatus(`${result.enriched}/${result.total} élèves enrichis`);
+          } else if (result.error) {
+            console.warn('[enrichment]', result.error);
+          }
+        } catch (err) {
+          console.warn('[enrichment] Non-blocking error:', err);
+        }
+      }
+
+      setImportStatus('Sauvegarde…');
       await handleK12DataReady(data);
     } catch (err) {
       console.error('Import error:', err);
@@ -384,7 +407,7 @@ function EmptyStateUpload({ session, globalSettings, settings, navigate, handleK
               {importing ? (
                 <div className="flex flex-col items-center gap-3">
                   <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#5556fd' }} />
-                  <p className="text-sm font-medium" style={{ color: '#5556fd' }}>Import en cours…</p>
+                  <p className="text-sm font-medium" style={{ color: '#5556fd' }}>{importStatus || 'Import en cours…'}</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-2">

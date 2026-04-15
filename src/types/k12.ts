@@ -267,6 +267,11 @@ export interface K12Student {
   branch: Branch | null;      // null for collège students
   isRepeating: boolean;       // repeating this grade level
   previousPromotionStatus: PromotionStatus; // last year's status
+  /** Personal info (enriched from API or roster) */
+  dateNaissance?: string;
+  lieuNaissance?: string;
+  sexe?: 'Masculin' | 'Féminin';
+  nationalite?: string;
   /** Full subject grades (evaluations + per-term + year averages) */
   subjectGrades: SubjectYearGrades[];
   /** Simplified term marks for rules engine */
