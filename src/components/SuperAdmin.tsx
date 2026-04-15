@@ -12,6 +12,8 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import ApiConfigPanel from './admin/ApiConfigPanel';
+import DataSyncPanel from './admin/DataSyncPanel';
 import {
   createEstablishment,
   updateEstablishment,
@@ -561,6 +563,12 @@ export default function SuperAdmin() {
               )}
             </div>
           </div>
+
+          {/* Data sync panel */}
+          <DataSyncPanel
+            establishmentName={selectedEstablishment.name}
+            establishmentCode={selectedEstablishment.code}
+          />
         </main>
 
         {/* Delete confirmation modal */}
@@ -817,6 +825,9 @@ export default function SuperAdmin() {
             {error}
           </div>
         )}
+
+        {/* API Configuration */}
+        <ApiConfigPanel />
 
         {loading ? (
           <div className="text-center py-20">
