@@ -42,7 +42,7 @@ export async function createSession(uid: string, email: string, name: string, de
   return ref.id;
 }
 
-export async function getUserSessions(uid: string, email: string, establishmentId?: string, isSuperAdmin = false): Promise<Array<{ id: string } & SessionDoc>> {
+export async function getUserSessions(uid: string, email: string, establishmentId?: string, _isSuperAdmin = false): Promise<Array<{ id: string } & SessionDoc>> {
   const queries: Promise<import('firebase/firestore').QuerySnapshot>[] = [];
 
   if (establishmentId) {

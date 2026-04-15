@@ -9,7 +9,6 @@ import {
   ArrowLeft,
   Search,
   Shield,
-  User,
   X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
