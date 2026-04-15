@@ -22,12 +22,30 @@ import type {
 const IS_DEV = import.meta.env.DEV;
 
 function proxyFetch(url: string, init?: RequestInit): Promise<Response> {
-  if (!IS_DEV) return fetch(url, init);
+  if (IS_DEV) {
+    // In dev, route through Vite middleware with X-Target-Url header
+    const headers = new Headers(init?.headers);
+    headers.set('X-Target-Url', url);
+    return fetch('/api-proxy', { ...init, headers });
+  }
 
-  // In dev, route through /api-proxy with X-Target-Url header
-  const headers = new Headers(init?.headers);
-  headers.set('X-Target-Url', url);
-  return fetch('/api-proxy', { ...init, headers });
+  // In production, route through Vercel serverless proxy
+  const headerObj: Record<string, string> = {};
+  if (init?.headers) {
+    const h = new Headers(init.headers);
+    h.forEach((v, k) => { headerObj[k] = v; });
+  }
+
+  return fetch('/api/proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url,
+      method: init?.method || 'GET',
+      headers: headerObj,
+      body: init?.body ? String(init.body) : undefined,
+    }),
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
