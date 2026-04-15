@@ -154,6 +154,21 @@ export async function isApiConfigured(): Promise<boolean> {
 // LOCAL DB ENRICHMENT — use synced educationDB data (no API call needed)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Normalize a class name for comparison: strip accents, uppercase, collapse whitespace.
+ *  e.g. "1ère A2" → "1ere a2", "1ERE  A2" → "1ere a2" */
+function normalizeClassName(name: string): string {
+  return name
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Returns true if the matricule looks like a rank-based placeholder ("0", "1", "23") */
+function isPlaceholderMatricule(mat: string): boolean {
+  return !mat || /^\d{1,3}$/.test(mat.trim());
+}
+
 /**
  * Enrich K12AppData students from locally synced data in educationDB.
  * This is faster and works offline — uses the data already synced via SuperAdmin.
@@ -182,13 +197,13 @@ export async function enrichStudentsFromLocalDB(
 
   // Build lookup maps
   const byMatricule = new Map<string, EleveML>();
-  // Name-based maps use composite key "name|className" for same-class verification
+  // Name-based maps use composite key "name|normalizedClass" for same-class verification
   const byNameAndClass = new Map<string, EleveML>();
   const byNormalizedAndClass = new Map<string, EleveML>();
   for (const e of allEleves) {
     const mat = (e.matricule || '').trim();
     if (mat) byMatricule.set(mat, e);
-    const cls = (e.salle_de_classe || '').trim().toLowerCase();
+    const cls = normalizeClassName(e.salle_de_classe || '');
     // "NOM PRENOM|classe" and "PRENOM NOM|classe"
     const name = `${e.nom} ${e.prenom}`.trim().toLowerCase();
     if (name && cls) {
@@ -205,20 +220,21 @@ export async function enrichStudentsFromLocalDB(
 
   function tryEnrich(student: K12Student): boolean {
     // 1. By matricule (exact — unique, no class check needed)
-    if (student.matricule.trim()) {
+    // Skip placeholder matricules (rank-based "0", "1", etc.)
+    if (student.matricule.trim() && !isPlaceholderMatricule(student.matricule)) {
       const match = byMatricule.get(student.matricule.trim());
       if (match) { applyLocalInfo(student, match); return true; }
     }
-    // 2. By full name + same class
+    // 2. By full name + same class (normalized class name for accent-insensitive matching)
     const fullLower = student.fullName.trim().toLowerCase();
-    const clsLower = (student.className || '').trim().toLowerCase();
-    if (clsLower) {
-      const matchName = byNameAndClass.get(`${fullLower}|${clsLower}`)
-        ?? byNameAndClass.get(`${student.lastName} ${student.firstName}`.trim().toLowerCase() + `|${clsLower}`);
+    const clsNorm = normalizeClassName(student.className || '');
+    if (clsNorm) {
+      const matchName = byNameAndClass.get(`${fullLower}|${clsNorm}`)
+        ?? byNameAndClass.get(`${student.lastName} ${student.firstName}`.trim().toLowerCase() + `|${clsNorm}`);
       if (matchName) { applyLocalInfo(student, matchName); return true; }
       // 3. By normalized name + same class (order-independent)
       const normalizedStudent = fullLower.split(/\s+/).sort().join(' ');
-      const matchNorm = byNormalizedAndClass.get(`${normalizedStudent}|${clsLower}`);
+      const matchNorm = byNormalizedAndClass.get(`${normalizedStudent}|${clsNorm}`);
       if (matchNorm) { applyLocalInfo(student, matchNorm); return true; }
     }
     return false;
@@ -240,11 +256,8 @@ export async function enrichStudentsFromLocalDB(
 }
 
 function applyLocalInfo(student: K12Student, eleve: EleveML): void {
-  if (eleve.matricule && !student.matricule) {
-    student.matricule = eleve.matricule;
-  }
-  // Always set matricule if student has none or it's a placeholder
-  if (eleve.matricule && (!student.matricule || student.matricule === student.id)) {
+  // Replace matricule if the student has none or a rank-based placeholder ("0", "1", etc.)
+  if (eleve.matricule && isPlaceholderMatricule(student.matricule)) {
     student.matricule = eleve.matricule;
   }
   if (eleve.date_naissance && !student.dateNaissance) {
