@@ -77,32 +77,36 @@ async function loadCloud(sessionId: string): Promise<K12AppData | null> {
   const storageRef = ref(storage, cloudPath(sessionId));
   console.log('[sessionStorage] Attempting cloud load from:', cloudPath(sessionId));
 
-  // Strategy 1: getBytes (SDK direct, works without CORS but may fail on some setups)
-  try {
-    const bytes = await Promise.race([
-      getBytes(storageRef),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('getBytes timeout')), 15000)),
-    ]);
-    console.log('[sessionStorage] getBytes succeeded, bytes:', bytes.byteLength);
-    const text = new TextDecoder().decode(bytes);
-    return JSON.parse(text) as K12AppData;
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.warn('[sessionStorage] getBytes failed, trying getDownloadURL fallback:', errMsg);
-  }
-
-  // Strategy 2: getDownloadURL + fetch (requires CORS but more reliable)
+  // Use getDownloadURL + fetch as primary strategy (most reliable with CORS configured)
   try {
     const url = await getDownloadURL(storageRef);
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
-    console.log('[sessionStorage] getDownloadURL fallback succeeded');
+    console.log('[sessionStorage] Cloud load succeeded');
     return data as K12AppData;
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
     const errCode = (err as { code?: string })?.code;
-    console.error('[sessionStorage] Cloud load completely failed:', { code: errCode, message: errMsg });
+    if (errCode === 'storage/object-not-found') {
+      console.log('[sessionStorage] No cloud file exists');
+      return null;
+    }
+    console.warn('[sessionStorage] getDownloadURL failed, trying getBytes fallback:', errMsg);
+  }
+
+  // Fallback: getBytes (works without CORS in some SDK versions)
+  try {
+    const bytes = await Promise.race([
+      getBytes(storageRef),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('getBytes timeout')), 5000)),
+    ]);
+    console.log('[sessionStorage] getBytes fallback succeeded, bytes:', bytes.byteLength);
+    const text = new TextDecoder().decode(bytes);
+    return JSON.parse(text) as K12AppData;
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error('[sessionStorage] Cloud load completely failed:', errMsg);
     return null;
   }
 }
@@ -154,11 +158,13 @@ export async function loadSessionAppData(sessionId: string): Promise<K12AppData 
 }
 
 /** Ensure cloud copy exists — called when we have local data.
- *  Checks if cloud file exists; if not, uploads it. */
+ *  Uses a session-scoped flag to avoid redundant checks. */
+const _cloudCheckDone = new Set<string>();
 async function ensureCloudCopy(sessionId: string, data: K12AppData): Promise<void> {
+  if (_cloudCheckDone.has(sessionId)) return;
+  _cloudCheckDone.add(sessionId);
   try {
     const storageRef = ref(storage, cloudPath(sessionId));
-    // Quick check: try to get metadata (getDownloadURL is fast and tells us if file exists)
     await getDownloadURL(storageRef);
     // File exists, nothing to do
   } catch (err: unknown) {

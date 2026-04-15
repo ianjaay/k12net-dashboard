@@ -76,18 +76,39 @@ export async function getUserSessions(uid: string, email: string, establishmentI
   });
 }
 
+// In-memory cache for user display names (avoids repeated Firestore reads)
+const _displayNameCache = new Map<string, string>();
+
 export async function getUserDisplayNames(uids: string[]): Promise<Record<string, string>> {
   const unique = [...new Set(uids)];
   const result: Record<string, string> = {};
-  await Promise.all(unique.map(async uid => {
-    try {
-      const snap = await getDoc(doc(db, 'users', uid));
-      if (snap.exists()) {
-        const data = snap.data() as { displayName?: string; email?: string };
-        result[uid] = data.displayName || data.email || uid;
-      }
-    } catch { /* ignore */ }
-  }));
+  const toFetch: string[] = [];
+
+  // Use cached values
+  for (const uid of unique) {
+    const cached = _displayNameCache.get(uid);
+    if (cached) {
+      result[uid] = cached;
+    } else {
+      toFetch.push(uid);
+    }
+  }
+
+  // Fetch missing names in parallel
+  if (toFetch.length > 0) {
+    await Promise.all(toFetch.map(async uid => {
+      try {
+        const snap = await getDoc(doc(db, 'users', uid));
+        if (snap.exists()) {
+          const data = snap.data() as { displayName?: string; email?: string };
+          const name = data.displayName || data.email || uid;
+          result[uid] = name;
+          _displayNameCache.set(uid, name);
+        }
+      } catch { /* ignore */ }
+    }));
+  }
+
   return result;
 }
 
