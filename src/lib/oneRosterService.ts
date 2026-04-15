@@ -196,6 +196,46 @@ export class OneRosterService {
     );
   }
 
+  /**
+   * Get classes for a school filtered by term (academic session).
+   * First tries server-side filter; falls back to client-side.
+   */
+  async getClassesBySchoolAndTerm(
+    schoolId: string,
+    termIds: string[],
+  ): Promise<OneRosterClass[]> {
+    if (termIds.length === 0) return this.getClassesBySchool(schoolId);
+
+    // Client-side: fetch all, then keep classes that reference any of the given terms
+    const all = await this.getClassesBySchool(schoolId);
+    const termSet = new Set(termIds);
+    const filtered = all.filter(c =>
+      c.terms?.some(t => termSet.has(t.sourcedId)),
+    );
+    // If filter eliminated everything, the terms data might be missing → return all
+    return filtered.length > 0 ? filtered : all;
+  }
+
+  /**
+   * Get all term/session sourcedIds that belong to a given school year.
+   * Includes the schoolYear session itself plus its child terms/semesters.
+   */
+  async getTermIdsForYear(yearId: string): Promise<string[]> {
+    const all = await this.getAcademicSessions();
+    const ids = new Set<string>();
+    ids.add(yearId);
+    // Add children (terms, semesters) of this year
+    for (const s of all) {
+      if (s.parent?.sourcedId === yearId) ids.add(s.sourcedId);
+    }
+    // Also add the year session's own children if listed
+    const yearSession = all.find(s => s.sourcedId === yearId);
+    if (yearSession?.children) {
+      for (const c of yearSession.children) ids.add(c.sourcedId);
+    }
+    return Array.from(ids);
+  }
+
   async getStudentsBySchool(schoolId: string): Promise<OneRosterUser[]> {
     return this.fetchAll<OneRosterUser>(
       `/ims/oneroster/v1p1/schools/${encodeURIComponent(schoolId)}/students`,

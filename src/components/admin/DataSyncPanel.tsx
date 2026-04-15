@@ -3,9 +3,9 @@
  * Fetches classes, students, teachers, enrollments for a given school.
  * Shown inside the SuperAdmin establishment detail view.
  */
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Play, StopCircle, Loader2, Database, Users, BookOpen, GraduationCap, ClipboardList } from 'lucide-react';
-import type { OneRosterApiConfig, OneRosterSession } from '../../types/oneRoster';
+import type { OneRosterApiConfig } from '../../types/oneRoster';
 import { OneRosterService } from '../../lib/oneRosterService';
 import { getApiConfig } from '../../lib/educationDB';
 import {
@@ -50,10 +50,19 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
   const [service, setService] = useState<OneRosterService | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Academic year selection
-  const [academicYears, setAcademicYears] = useState<OneRosterSession[]>([]);
-  const [selectedYearId, setSelectedYearId] = useState<string>('');
-  const [loadingYears, setLoadingYears] = useState(false);
+  // Academic year — computed list, no API dependency
+  const yearOptions = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    // If we're past August, current academic year starts this year
+    const startYear = now.getMonth() >= 8 ? y : y - 1;
+    const years: string[] = [];
+    for (let i = startYear; i >= startYear - 4; i--) {
+      years.push(`${i}-${i + 1}`);
+    }
+    return years;
+  }, []);
+  const [selectedYear, setSelectedYear] = useState(yearOptions[0]);
 
   // School matching
   const [matchedSchoolId, setMatchedSchoolId] = useState<string | null>(null);
@@ -88,17 +97,13 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
     })();
   }, []);
 
-  // Load schools and academic years when service is ready
+  // Load schools when service is ready
   useEffect(() => {
     if (!service) return;
     (async () => {
       setSchoolSearching(true);
-      setLoadingYears(true);
       try {
-        const [schools, sessions] = await Promise.all([
-          service.getSchools(),
-          service.getAcademicSessions(),
-        ]);
+        const schools = await service.getSchools();
 
         // Schools
         const schoolList = schools.map(s => ({ id: s.sourcedId, name: s.name }));
@@ -120,26 +125,10 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
           setMatchedSchoolId(schoolList[0].id);
           setMatchedSchoolName(schoolList[0].name);
         }
-
-        // Academic years — accept 'schoolYear' (case-insensitive) or sessions with schoolYear field
-        const years = sessions.filter(s => {
-          const t = (s.type || '').toLowerCase();
-          return t === 'schoolyear' || t === 'school_year' || t === 'year';
-        });
-        // If strict filter finds nothing, fall back to all sessions that have a schoolYear value
-        const finalYears = years.length > 0
-          ? years
-          : sessions.filter(s => s.schoolYear && !s.parent);
-        // Last fallback: show all sessions
-        const display = finalYears.length > 0 ? finalYears : sessions;
-        const sorted = display.sort((a, b) => b.schoolYear.localeCompare(a.schoolYear));
-        setAcademicYears(sorted);
-        if (sorted.length > 0) setSelectedYearId(sorted[0].sourcedId);
       } catch (err) {
         addLog(`Erreur de connexion API: ${err instanceof Error ? err.message : String(err)}`, 'error');
       } finally {
         setSchoolSearching(false);
-        setLoadingYears(false);
       }
     })();
   }, [service]);
@@ -151,7 +140,7 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
   }, []);
 
   const handleSync = useCallback(async () => {
-    if (!service || !matchedSchoolId || !selectedYearId) return;
+    if (!service || !matchedSchoolId || !selectedYear) return;
     cancelRef.current = false;
     setSyncing(true);
     setSyncDone(false);
@@ -161,8 +150,7 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
 
     const startTime = Date.now();
     const syncLog = createSyncLog('api', 'full');
-    const selectedYear = academicYears.find(y => y.sourcedId === selectedYearId);
-    const yearLabel = selectedYear?.title ?? selectedYearId;
+    const yearLabel = selectedYear;
 
     try {
       addLog(`Démarrage de la synchronisation — ${establishmentName} (${yearLabel})`, 'info');
@@ -178,11 +166,39 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
       addLog(`✓ Établissement: ${schoolData.name}`, 'success');
       if (cancelRef.current) { addLog('⛔ Synchronisation interrompue', 'warn'); setSyncing(false); return; }
 
-      // 2. Get classes
+      // 2. Get academic sessions to find term IDs matching selected year
+      setProgressLabel('Sessions académiques…');
+      setProgress(10);
+      addLog(`↓ Recherche des sessions pour ${yearLabel}…`, 'fetch');
+      let termIds: string[] = [];
+      try {
+        const allSessions = await service.getAcademicSessions();
+        // Find sessions whose schoolYear matches (e.g. "2024" or "2024-2025")
+        const [startY] = yearLabel.split('-');
+        const matchingSessions = allSessions.filter(s =>
+          s.schoolYear === yearLabel
+          || s.schoolYear === startY
+          || s.title === yearLabel
+          || s.title?.includes(yearLabel)
+        );
+        termIds = matchingSessions.map(s => s.sourcedId);
+        if (termIds.length > 0) {
+          addLog(`✓ ${termIds.length} session(s) trouvée(s) pour ${yearLabel}`, 'success');
+        } else {
+          addLog(`⚠ Aucune session API trouvée pour ${yearLabel}, toutes les classes seront importées`, 'warn');
+        }
+      } catch {
+        addLog('⚠ Impossible de charger les sessions, toutes les classes seront importées', 'warn');
+      }
+      if (cancelRef.current) { addLog('⛔ Synchronisation interrompue', 'warn'); setSyncing(false); return; }
+
+      // 3. Get classes (filtered by term if possible)
       setProgressLabel('Classes…');
-      setProgress(15);
+      setProgress(20);
       addLog('↓ Récupération des classes…', 'fetch');
-      const classes = await service.getClassesBySchool(matchedSchoolId);
+      const classes = termIds.length > 0
+        ? await service.getClassesBySchoolAndTerm(matchedSchoolId, termIds)
+        : await service.getClassesBySchool(matchedSchoolId);
       const classesML = classes.map(c => mapClassToClasseML(c, matchedSchoolId, yearLabel));
       if (classesML.length > 0) await saveClasses(classesML);
       setStats(s => ({ ...s, classes: classesML.length }));
@@ -190,9 +206,9 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
       addLog(`✓ ${classesML.length} classes`, 'success');
       if (cancelRef.current) { addLog('⛔ Synchronisation interrompue', 'warn'); setSyncing(false); return; }
 
-      // 3. Get students
+      // 4. Get students
       setProgressLabel('Élèves…');
-      setProgress(35);
+      setProgress(40);
       addLog('↓ Récupération des élèves…', 'fetch');
       const students = await service.getStudentsBySchool(matchedSchoolId);
       const elevesML = students.map(s => mapUserToEleve(s, '', '', matchedSchoolId, yearLabel));
@@ -202,7 +218,7 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
       addLog(`✓ ${elevesML.length} élèves`, 'success');
       if (cancelRef.current) { addLog('⛔ Synchronisation interrompue', 'warn'); setSyncing(false); return; }
 
-      // 4. Get teachers
+      // 5. Get teachers
       setProgressLabel('Enseignants…');
       setProgress(55);
       addLog('↓ Récupération des enseignants…', 'fetch');
@@ -214,11 +230,14 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
       addLog(`✓ ${enseignantsML.length} enseignants`, 'success');
       if (cancelRef.current) { addLog('⛔ Synchronisation interrompue', 'warn'); setSyncing(false); return; }
 
-      // 5. Get enrollments
+      // 6. Get enrollments — filter to only keep enrollments for classes of the selected year
       setProgressLabel('Inscriptions…');
       setProgress(75);
       addLog('↓ Récupération des inscriptions…', 'fetch');
-      const enrollments = await service.getEnrollmentsBySchool(matchedSchoolId);
+      const allEnrollments = await service.getEnrollmentsBySchool(matchedSchoolId);
+      const classIdSet = new Set(classesML.map(c => c.id));
+      const enrollments = allEnrollments.filter(e => classIdSet.has(e.class.sourcedId));
+      addLog(`↓ ${allEnrollments.length} inscriptions récupérées, ${enrollments.length} correspondent aux classes ${yearLabel}`, 'info');
       const enrollmentsML = enrollments.map(mapEnrollment);
       if (enrollmentsML.length > 0) await saveEnrollments(enrollmentsML);
       setStats(s => ({ ...s, enrollments: enrollmentsML.length }));
@@ -264,7 +283,7 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
     } finally {
       setSyncing(false);
     }
-  }, [service, matchedSchoolId, selectedYearId, academicYears, establishmentName, addLog]);
+  }, [service, matchedSchoolId, selectedYear, establishmentName, addLog]);
 
   const logColor = (type: LogEntry['type']) => {
     switch (type) {
@@ -334,24 +353,16 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
           <label className="block text-xs font-medium mb-1" style={{ color: '#373857' }}>
             Année scolaire
           </label>
-          {loadingYears ? (
-            <div className="flex items-center gap-2 py-2">
-              <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#5556fd' }} />
-              <span className="text-xs" style={{ color: '#8392a5' }}>Chargement…</span>
-            </div>
-          ) : (
-            <select
-              value={selectedYearId}
-              onChange={e => setSelectedYearId(e.target.value)}
-              className="w-full text-sm border rounded px-3 py-2"
-              style={{ borderColor: '#e6e7ef', color: '#373857' }}
-            >
-              {academicYears.length === 0 && <option value="">Aucune année trouvée</option>}
-              {academicYears.map(y => (
-                <option key={y.sourcedId} value={y.sourcedId}>{y.title}</option>
-              ))}
-            </select>
-          )}
+          <select
+            value={selectedYear}
+            onChange={e => setSelectedYear(e.target.value)}
+            className="w-full text-sm border rounded px-3 py-2"
+            style={{ borderColor: '#e6e7ef', color: '#373857' }}
+          >
+            {yearOptions.map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -360,7 +371,7 @@ export default function DataSyncPanel({ establishmentName, establishmentCode }: 
         {!syncing ? (
           <button
             onClick={handleSync}
-            disabled={!matchedSchoolId || !selectedYearId || syncing}
+            disabled={!matchedSchoolId || !selectedYear || syncing}
             className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
             style={{ background: '#22d273' }}
           >
