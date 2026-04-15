@@ -6,6 +6,7 @@ import { useGlobalSettings } from '../../contexts/GlobalSettingsContext';
 import { useEstablishment } from '../../contexts/EstablishmentContext';
 import { useTranslation } from 'react-i18next';
 import { getUserSessions, getUserDisplayNames, createSession, deleteSession, updateSession, removeSharing } from '../../lib/firestore';
+import { listEstablishmentMembers } from '../../lib/firestoreEstablishments';
 import type { SessionDoc, SessionRole } from '../../types';
 import SessionCard from './SessionCard';
 import CreateSessionModal from './CreateSessionModal';
@@ -28,11 +29,22 @@ export default function SessionList() {
     if (!user) return;
     setLoading(true);
     try {
+      // Get establishment member UIDs to find their sessions too
+      let memberUids: string[] | undefined;
+      if (currentEstablishment?.id) {
+        try {
+          const members = await listEstablishmentMembers(currentEstablishment.id);
+          memberUids = members.map(m => m.uid);
+        } catch (err) {
+          console.warn('[SessionList] Could not load establishment members:', err);
+        }
+      }
       const data = await getUserSessions(
         user.uid,
         user.email ?? `guest-${user.uid}@anonymous`,
         currentEstablishment?.id,
         isSuperAdmin,
+        memberUids,
       );
       // Resolve owner display names
       const ownerUids = [...new Set(data.map(s => s.ownerId))];

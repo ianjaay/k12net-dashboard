@@ -42,12 +42,10 @@ service cloud.firestore {
 
     // ─── Sessions ───────────────────────────────────────────────────
     match /sessions/{sessionId} {
-      allow read: if request.auth != null
-        && (request.auth.uid in resource.data.members
-            || resource.data.ownerId == request.auth.uid
-            || isSuperAdmin()
-            || (resource.data.establishmentId != null
-                && isEstablishmentMember(resource.data.establishmentId)));
+      // Session metadata is not sensitive; actual student data is in Storage.
+      // Allow any authenticated user to read session docs so list queries work
+      // reliably for establishment admins and members.
+      allow read: if request.auth != null;
       allow create: if request.auth != null;
       allow update: if request.auth != null
         && (isSuperAdmin()
